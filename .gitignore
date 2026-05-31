@@ -1,0 +1,19 @@
+# Environments
+.env
+generated/*
+!generated/.gitkeep
+
+# Database and Runtime directories
+postgres_data/
+data/moodledata/*
+!data/moodledata/.gitkeep
+data/backups/*
+!data/backups/.gitkeep
+jupyterhub/jupyterhub.sqlite
+jupyterhub/jupyterhub_cookie_secret
+
+# Cache and Logs
+__pycache__/
+*.log
+.pytest_cache/
+.ipynb_checkpoints/

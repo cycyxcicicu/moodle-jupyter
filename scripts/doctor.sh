@@ -1,0 +1,300 @@
+#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+# Load biến môi trường
+if [ -f .env ]; then
+    set -a
+    . ./.env
+    set +a
+fi
+# Đảm bảo file config LTI tồn tại
+./scripts/ensure-generated-env.sh
+
+POSTGRES_ADMIN_USER=${POSTGRES_ADMIN_USER:-postgres}
+MOODLE_DB_NAME=${MOODLE_DB_NAME:-moodle}
+JUPYTERHUB_DB_NAME=${JUPYTERHUB_DB_NAME:-jupyterhub}
+MOODLE_HOST_PORT=${MOODLE_HOST_PORT:-18080}
+JUPYTERHUB_HOST_PORT=${JUPYTERHUB_HOST_PORT:-18000}
+POSTGRES_HOST_PORT=${POSTGRES_HOST_PORT:-15432}
+
+echo "=== ĐANG CHẠY CHẨN ĐOÁN HỆ THỐNG (DOCTOR CHECK) ==="
+status=0
+
+# 1. Kiểm tra Docker Compose Services
+echo -n "1. Kiểm tra trạng thái các service: "
+postgres_status=$(docker compose ps -q postgres)
+moodle_status=$(docker compose ps -q moodle)
+jupyterhub_status=$(docker compose ps -q jupyterhub)
+
+if [ -n "$postgres_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$postgres_status")" = "true" ]; then
+    echo -n "[postgres: RUNNING] "
+else
+    echo -n "[postgres: STOPPED/ERROR] "
+    status=1
+fi
+
+if [ -n "$moodle_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$moodle_status")" = "true" ]; then
+    echo -n "[moodle: RUNNING] "
+else
+    echo -n "[moodle: STOPPED/ERROR] "
+    status=1
+fi
+
+if [ -n "$jupyterhub_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$jupyterhub_status")" = "true" ]; then
+    echo "[jupyterhub: RUNNING]"
+else
+    echo "[jupyterhub: STOPPED/ERROR]"
+    status=1
+fi
+
+# 2. Kiểm tra database trong postgres
+if [ -n "$postgres_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$postgres_status")" = "true" ]; then
+    echo -n "2. Kiểm tra database moodle và jupyterhub: "
+    moodle_db_exists=$(docker compose exec -T postgres psql -U "$POSTGRES_ADMIN_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$MOODLE_DB_NAME'" 2>/dev/null || echo "0")
+    jupyterhub_db_exists=$(docker compose exec -T postgres psql -U "$POSTGRES_ADMIN_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$JUPYTERHUB_DB_NAME'" 2>/dev/null || echo "0")
+    
+    if [ "$moodle_db_exists" = "1" ] && [ "$jupyterhub_db_exists" = "1" ]; then
+        echo "OK (Cả hai DB tồn tại)"
+    else
+        echo "LỖI (Thiếu database! moodle: $moodle_db_exists, jupyterhub: $jupyterhub_db_exists)"
+        status=1
+    fi
+else
+    echo "2. Kiểm tra database: Bỏ qua vì Postgres không chạy."
+    status=1
+fi
+
+# 3. Kiểm tra file generated/lti.env và đối chiếu DB/Container
+echo "3. Kiểm tra file generated/lti.env và đối chiếu DB/Container:"
+if [ -f "generated/lti.env" ] && [ -s "generated/lti.env" ]; then
+    echo "   - File generated/lti.env: OK (Tồn tại và không rỗng)"
+    
+    # Kiểm tra các biến LTI13_* bắt buộc trong file
+    set +e
+    lti_client_id=$(grep "^LTI13_CLIENT_ID=" generated/lti.env | cut -d= -f2- | tr -d '\r')
+    set -e
+    
+    missing_var=0
+    required_vars=("LTI13_CLIENT_ID" "LTI13_ISSUER" "LTI13_AUTHORIZE_URL" "LTI13_TOKEN_URL" "LTI13_JWKS_URL" "LTI13_REDIRECT_URI" "LTI13_LAUNCH_URL")
+    for var in "${required_vars[@]}"; do
+        val=$(grep "^${var}=" generated/lti.env | cut -d= -f2- | tr -d '\r')
+        if [ -z "$val" ]; then
+            echo "   - Biến $var trong file: LỖI (Thiếu hoặc rỗng!)"
+            missing_var=1
+        else
+            echo "   - Biến $var trong file: OK"
+        fi
+    done
+    
+    if [ $missing_var -eq 1 ]; then
+        status=1
+    fi
+    
+    # So khớp LTI13_CLIENT_ID với database và kiểm tra cấu hình LTI nếu Postgres đang chạy
+    if [ -n "$postgres_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$postgres_status")" = "true" ]; then
+        DB_USER=${POSTGRES_ADMIN_USER:-postgres}
+        DB_PASS=${POSTGRES_ADMIN_PASSWORD:-postgres}
+        DB_NAME=${MOODLE_DB_NAME:-moodle}
+        
+        # Lấy thông tin typeid và clientid từ database
+        db_tool_info=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT id, clientid FROM mdl_lti_types WHERE name = 'JupyterHub' ORDER BY id LIMIT 1;" 2>/dev/null || echo "")
+        
+        if [ -n "$db_tool_info" ]; then
+            db_typeid=$(echo "$db_tool_info" | cut -d'|' -f1)
+            db_clientid=$(echo "$db_tool_info" | cut -d'|' -f2)
+            
+            # 1. So khớp Client ID
+            if [ "$lti_client_id" = "$db_clientid" ]; then
+                echo "   - Khớp Client ID (file lti.env vs DB): OK ($lti_client_id)"
+            else
+                echo "   - Khớp Client ID (file lti.env vs DB): LỖI (Trong file: $lti_client_id, Database: $db_clientid)"
+                status=1
+            fi
+            
+            # Truy vấn các cấu hình LTI chi tiết
+            db_toolurl=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name = 'toolurl';" 2>/dev/null || echo "")
+            db_keytype=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name = 'keytype';" 2>/dev/null || echo "")
+            db_publickeyset=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name = 'publickeyset';" 2>/dev/null || echo "")
+            db_redirectionuris=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name = 'redirectionuris';" 2>/dev/null || echo "")
+            
+            # 2. Kiểm tra keytype phải là JWK_KEYSET
+            if [ "$db_keytype" = "JWK_KEYSET" ]; then
+                echo "   - Cấu hình keytype trong Database: OK (JWK_KEYSET)"
+            else
+                echo "   - Cấu hình keytype trong Database: LỖI (Kỳ vọng JWK_KEYSET, thực tế: $db_keytype)"
+                status=1
+            fi
+            
+            # 3. Kiểm tra publickeyset không rỗng
+            if [ -n "$db_publickeyset" ]; then
+                echo "   - Cấu hình publickeyset trong Database: OK ($db_publickeyset)"
+            else
+                echo "   - Cấu hình publickeyset trong Database: LỖI (Bị rỗng!)"
+                status=1
+            fi
+            
+            # 4. Kiểm tra redirectionuris chỉ có 1 callback URI
+            line_count=$(echo "$db_redirectionuris" | grep -c "^")
+            has_slash_uri=$(echo "$db_redirectionuris" | grep -F "oauth_callback/")
+            if [ "$line_count" -eq 1 ] && [ -z "$has_slash_uri" ]; then
+                echo "   - Cấu hình redirectionuris trong Database: OK ($db_redirectionuris)"
+            else
+                echo "   - Cấu hình redirectionuris trong Database: LỖI (Phải chỉ có 1 dòng và không có slash kết thúc, thực tế: $(echo "$db_redirectionuris" | tr '\n' ' '))"
+                status=1
+            fi
+            
+            # 5. Kiểm tra trùng lặp cấu hình trong lti_types_config
+            duplicates=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT name, COUNT(*) FROM mdl_lti_types_config WHERE typeid = '$db_typeid' GROUP BY name HAVING COUNT(*) > 1;" 2>/dev/null || echo "")
+            if [ -z "$duplicates" ]; then
+                echo "   - Không có cấu hình trùng lặp trong Database: OK"
+            else
+                echo "   - Có cấu hình trùng lặp trong Database: LỖI (Trùng lặp: $(echo "$duplicates" | tr '\n' ' '))"
+                status=1
+            fi
+            
+            # 6. Kiểm tra các config key có tiền tố lti_ (không được tồn tại)
+            db_lti_prefix_count=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name LIKE 'lti_%';" 2>/dev/null || echo "0")
+            if [ "$db_lti_prefix_count" = "0" ]; then
+                echo "   - Không có cấu hình tiền tố lti_ trong Database: OK"
+            else
+                echo "   - Có cấu hình tiền tố lti_ trong Database: LỖI (Tìm thấy $db_lti_prefix_count cấu hình tiền tố lti_!)"
+                status=1
+            fi
+            
+            # 7. Kiểm tra các biến môi trường thực tế bên trong container jupyterhub
+            if [ -n "$jupyterhub_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$jupyterhub_status")" = "true" ]; then
+                container_vars=$(docker compose exec -T jupyterhub env | grep "^LTI13_" 2>/dev/null || echo "")
+                if [ -n "$container_vars" ]; then
+                    echo "   - Đọc biến môi trường trong container jupyterhub: OK"
+                    
+                    # Kiểm tra từng biến trong container
+                    container_missing=0
+                    for var in "${required_vars[@]}"; do
+                        val=$(echo "$container_vars" | grep "^${var}=" | cut -d= -f2- | tr -d '\r')
+                        if [ -z "$val" ]; then
+                            echo "     + Biến $var trong container: LỖI (Thiếu hoặc rỗng!)"
+                            container_missing=1
+                        else
+                            echo "     + Biến $var trong container: OK"
+                        fi
+                    done
+                    
+                    if [ $container_missing -eq 1 ]; then
+                        status=1
+                    else
+                        # Khớp Client ID trong container với DB
+                        container_client_id=$(echo "$container_vars" | grep "^LTI13_CLIENT_ID=" | cut -d= -f2- | tr -d '\r')
+                        if [ "$container_client_id" = "$db_clientid" ]; then
+                            echo "   - Khớp Client ID trong container với Database: OK ($container_client_id)"
+                        else
+                            echo "   - Khớp Client ID trong container với Database: LỖI (Container: $container_client_id, Database: $db_clientid)"
+                            status=1
+                        fi
+                    fi
+                else
+                    echo "   - Đọc biến môi trường trong container jupyterhub: LỖI (Không tìm thấy biến LTI13_* nào!)"
+                    status=1
+                fi
+            else
+                echo "   - Đọc biến môi trường trong container jupyterhub: Bỏ qua (JupyterHub container không chạy)"
+            fi
+            
+            # 8. Kiểm tra log jupyterhub xem có cảnh báo lỗi cấu hình cookie_options không
+            if [ -n "$jupyterhub_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$jupyterhub_status")" = "true" ]; then
+                warn_count=$(docker compose logs jupyterhub 2>&1 | grep -c "Config option cookie_options not recognized" || echo "0")
+                if [ "$warn_count" = "0" ]; then
+                    echo "   - Kiểm tra log JupyterHub (không bị lỗi cookie_options): OK"
+                else
+                    echo "   - Kiểm tra log JupyterHub (bị lỗi cookie_options): LỖI (Tìm thấy $warn_count cảnh báo 'Config option cookie_options not recognized'!)"
+                    status=1
+                fi
+            fi
+        else
+            echo "   - Cấu hình LTI JupyterHub trong DB: LỖI (Không tìm thấy LTI tool 'JupyterHub' trong Database!)"
+            status=1
+        fi
+    else
+        echo "   - Kiểm tra DB & Container: Bỏ qua (Postgres không chạy)"
+    fi
+else
+    echo "   - File generated/lti.env: LỖI (Không tồn tại hoặc rỗng!)"
+    status=1
+fi
+
+# 4. Kiểm tra port trên máy host đang lắng nghe
+echo "4. Kiểm tra các cổng host đang hoạt động:"
+if command -v nc >/dev/null 2>&1; then
+    if nc -z -w 2 127.0.0.1 "$POSTGRES_HOST_PORT" >/dev/null 2>&1; then
+        echo "   - Cổng Postgres $POSTGRES_HOST_PORT: OK (Đang lắng nghe)"
+    else
+        echo "   - Cổng Postgres $POSTGRES_HOST_PORT: LỖI (Không kết nối được)"
+        status=1
+    fi
+    
+    if nc -z -w 2 127.0.0.1 "$MOODLE_HOST_PORT" >/dev/null 2>&1; then
+        echo "   - Cổng Moodle $MOODLE_HOST_PORT: OK (Đang lắng nghe)"
+    else
+        echo "   - Cổng Moodle $MOODLE_HOST_PORT: LỖI (Không kết nối được)"
+        status=1
+    fi
+    
+    if nc -z -w 2 127.0.0.1 "$JUPYTERHUB_HOST_PORT" >/dev/null 2>&1; then
+        echo "   - Cổng JupyterHub $JUPYTERHUB_HOST_PORT: OK (Đang lắng nghe)"
+    else
+        echo "   - Cổng JupyterHub $JUPYTERHUB_HOST_PORT: LỖI (Không kết nối được)"
+        status=1
+    fi
+else
+    echo "   (Không có nc, dùng curl để kiểm tra HTTP endpoints)"
+    moodle_http=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$MOODLE_HOST_PORT" || echo "000")
+    if [ "$moodle_http" != "000" ]; then
+        echo "   - Cổng Moodle $MOODLE_HOST_PORT: OK (HTTP Code: $moodle_http)"
+    else
+        echo "   - Cổng Moodle $MOODLE_HOST_PORT: LỖI (Không phản hồi HTTP)"
+        status=1
+    fi
+    
+    jhub_http=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$JUPYTERHUB_HOST_PORT/hub/health" || echo "000")
+    if [ "$jhub_http" != "000" ]; then
+        echo "   - Cổng JupyterHub $JUPYTERHUB_HOST_PORT: OK (HTTP Code: $jhub_http)"
+    else
+        echo "   - Cổng JupyterHub $JUPYTERHUB_HOST_PORT: LỖI (Không phản hồi HTTP)"
+        status=1
+    fi
+fi
+
+# 5. Kiểm tra quyền ghi của thư mục moodledata bằng user www-data
+if [ -n "$moodle_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$moodle_status")" = "true" ]; then
+    echo "5. Kiểm tra quyền ghi của thư mục moodledata:"
+    
+    # Kiểm tra root moodledata
+    if docker compose exec -T moodle bash -lc "su -s /bin/sh www-data -c 'touch /var/moodledata/.write-test && rm /var/moodledata/.write-test'" >/dev/null 2>&1; then
+        echo "   - Thư mục root /var/moodledata: OK (www-data có quyền ghi)"
+    else
+        echo "   - Thư mục root /var/moodledata: LỖI (www-data KHÔNG có quyền ghi!)"
+        status=1
+    fi
+    
+    # Kiểm tra cache directory default_application
+    if docker compose exec -T moodle bash -lc "su -s /bin/sh www-data -c 'touch /var/moodledata/cache/cachestore_file/default_application/.write-test && rm /var/moodledata/cache/cachestore_file/default_application/.write-test'" >/dev/null 2>&1; then
+        echo "   - Thư mục cache /var/moodledata/cache/...: OK (www-data có quyền ghi)"
+    else
+        echo "   - Thư mục cache /var/moodledata/cache/...: LỖI (www-data KHÔNG có quyền ghi!)"
+        status=1
+    fi
+else
+    echo "5. Kiểm tra quyền ghi moodledata: Bỏ qua vì Moodle container không chạy."
+    status=1
+fi
+
+echo "========================================================="
+if [ $status -eq 0 ]; then
+    echo " KẾT LUẬN: Hệ thống Moodle + JupyterHub hoạt động tuyệt vời!"
+else
+    echo " KẾT LUẬN: Có lỗi phát hiện trong hệ thống. Vui lòng kiểm tra log chi tiết."
+fi
+exit $status

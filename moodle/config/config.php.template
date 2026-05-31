@@ -1,0 +1,34 @@
+<?php
+unset($CFG);
+global $CFG;
+$CFG = new stdClass();
+
+$CFG->dbtype = 'pgsql';
+$CFG->dblibrary = 'native';
+$CFG->dbhost = getenv('POSTGRES_HOST') ?: 'postgres';
+$CFG->dbname = getenv('POSTGRES_DB') ?: 'moodle';
+$CFG->dbuser = getenv('POSTGRES_USER') ?: 'moodle_user';
+$CFG->dbpass = getenv('POSTGRES_PASSWORD') ?: 'moodle_password';
+$CFG->prefix = 'mdl_';
+$CFG->dirroot = '/var/www/html';
+$moodle_wwwroot = getenv('MOODLE_WWWROOT') ?: 'http://localhost:18080';
+if (isset($_SERVER['HTTP_HOST']) && explode(':', $_SERVER['HTTP_HOST'])[0] === 'moodle') {
+    $CFG->wwwroot = 'http://moodle';
+} else {
+    $CFG->wwwroot = $moodle_wwwroot;
+}
+$CFG->dataroot = getenv('MOODLE_DATA_ROOT') ?: '/var/moodledata';
+$CFG->directorypermissions = 02775;
+$CFG->dboptions = array(
+    'dbpersist' => 0,
+    'dbsocket' => '',
+    'dbport' => (int) (getenv('POSTGRES_PORT') ?: 5432),
+);
+
+// Tắt debug display mặc định để tránh hiển thị stack trace trên giao diện production
+@error_reporting(0);
+@ini_set('display_errors', '0');
+$CFG->debug = 0;
+$CFG->debugdisplay = 0;
+
+require_once(__DIR__ . '/lib/setup.php');
