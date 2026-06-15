@@ -168,7 +168,7 @@ class JupyterLtiDbManager {
         $this->DB->execute("DELETE FROM {lti_types_config} WHERE typeid = ? AND name LIKE 'lti_%'", array($typeid));
 
         // Xóa các cấu hình cũ của Tool này ngoài các key ta chuẩn bị cập nhật để tránh rác
-        $keys_str = "'toolurl','initiatelogin','redirectionuris','keytype','publickeyset','sendname','sendemail','acceptgrades','launchcontainer'";
+        $keys_str = "'toolurl','initiatelogin','redirectionuris','keytype','publickeyset','sendname','sendemail','sendemailaddr','acceptgrades','launchcontainer'";
         $this->DB->execute("DELETE FROM {lti_types_config} WHERE typeid = ? AND name NOT IN ($keys_str)", array($typeid));
 
         // Cập nhật cấu hình chi tiết cho LTI 1.3
@@ -179,9 +179,10 @@ class JupyterLtiDbManager {
             'keytype' => 'JWK_KEYSET',
             // URL JWKS của JupyterHub để Moodle có thể kiểm tra chữ ký (gọi qua Docker network nội bộ)
             'publickeyset' => 'http://jupyterhub:8000/hub/lti13/jwks',
-            'sendname' => '2',      // Luôn gửi tên
-            'sendemail' => '2',     // Luôn gửi email
-            'acceptgrades' => '2',  // Chấp nhận điểm số trả về
+            'sendname' => '1',      // 1 = Luôn gửi tên (LTI_SETTING_ALWAYS)
+            'sendemail' => '1',     // Cấu hình dự phòng
+            'sendemailaddr' => '1', // 1 = Luôn gửi địa chỉ email (LTI_SETTING_ALWAYS)
+            'acceptgrades' => '1',  // 1 = Luôn chấp nhận điểm số (LTI_SETTING_ALWAYS)
             'launchcontainer' => (string)$launchcontainer
         );
 

@@ -1,5 +1,28 @@
 import os
 import re
+from jupyterhub.handlers.base import BaseHandler
+
+# Monkeypatch để đặt Hub cookie path là "/" thay vì "/hub/"
+# Điều này giúp trình duyệt gửi cookie đăng nhập (jupyterhub-hub-login)
+# sang cho các dịch vụ phụ trợ như /services/assignment-service/.
+original_set_user_cookie = BaseHandler._set_user_cookie
+original_clear_login_cookie = BaseHandler.clear_login_cookie
+
+def patched_set_user_cookie(self, user, server):
+    if server.cookie_name == self.hub.cookie_name:
+        self.log.debug("PATCHED Setting cookie for %s: %s with path '/'", user.name, server.cookie_name)
+        self._set_cookie(
+            server.cookie_name, user.cookie_id, encrypted=True, path="/"
+        )
+    else:
+        original_set_user_cookie(self, user, server)
+
+def patched_clear_login_cookie(self, name=None):
+    original_clear_login_cookie(self, name)
+    self.clear_cookie(self.hub.cookie_name, path="/")
+
+BaseHandler._set_user_cookie = patched_set_user_cookie
+BaseHandler.clear_login_cookie = patched_clear_login_cookie
 
 
 def env(name, default):
@@ -25,39 +48,92 @@ c.JupyterHub.db_url = env(
 )
 
 c.JupyterHub.bind_url = f"http://0.0.0.0:{JUPYTERHUB_PORT}"
-c.JupyterHub.spawner_class = "jupyterhub.spawner.LocalProcessSpawner"
-
 
 # =====================================================================
-# Hook tiền khởi động để tự động tạo và phân quyền Linux User
+# Cấu hình DockerSpawner
 # =====================================================================
-def create_dir_hook(spawner):
-    import pwd
+from dockerspawner import DockerSpawner
 
-    raw_username = spawner.user.name
-    # Chuẩn hóa tên user để làm tên thư mục và linux username
-    username = re.sub(r"[^a-zA-Z0-9_.-]", "_", raw_username)
-    homedir = f"/home/{username}"
+c.JupyterHub.spawner_class = DockerSpawner
 
-    try:
-        pwd.getpwnam(username)
-    except KeyError:
-        os.system(f"useradd -d {homedir} -s /bin/bash {username}")
+# Tên single-user image tự build
+c.DockerSpawner.image = "moodle-jupyter-singleuser:latest"
 
-    if not os.path.exists(homedir):
-        os.makedirs(homedir, exist_ok=True)
+# Mạng Docker cố định cho Hub và các single-user container
+c.DockerSpawner.network_name = "moodle-jupyter-net"
+c.DockerSpawner.use_internal_ip = True
 
-    os.system(f"chown -R {username}:{username} {homedir}")
+# Cấu hình IP và Port Hub lắng nghe để container con gọi ngược lại API
+c.JupyterHub.hub_ip = "0.0.0.0"
+c.JupyterHub.hub_port = 8081
+
+# Cấu hình IP kết nối ngược (phải trùng khớp với service name của Hub trong docker-compose.yml)
+c.JupyterHub.hub_connect_ip = "jupyterhub"
+
+# Tên của container chạy notebook của học viên
+c.DockerSpawner.name_template = "jupyter-{username}"
+
+# Thư mục làm việc mặc định trong container con
+c.DockerSpawner.notebook_dir = "/home/jovyan/work"
+
+# Map volume riêng cho từng user và volume exchange dùng chung cho mọi user
+PROJECT_NAME = env("PROJECT_NAME", "moodle-jupyter-platform")
+exchange_vol = f"{PROJECT_NAME}_nbgrader-exchange"
+courses_vol = f"{PROJECT_NAME}_nbgrader-courses"
+templates_vol = f"{PROJECT_NAME}_nbgrader-templates"
+
+c.DockerSpawner.volumes = {
+    "jupyterhub-user-{username}": "/home/jovyan/work"
+}
+
+def is_teacher_user(username: str) -> bool:
+    normalized = username.lower()
+    return (
+        "admin" in normalized
+        or "teacher" in normalized
+        or normalized.startswith("moodle_teacher_")
+    )
 
 
-c.Spawner.pre_spawn_hook = create_dir_hook
-c.Spawner.default_url = "/lab"
+# Hook tiền khởi động để mount động volume khóa học chỉ cho Giáo viên/Admin ở chế độ Read-Only
+def pre_spawn_hook(spawner):
+    username = spawner.user.name
+    is_teacher = spawner.user.admin or is_teacher_user(username)
+    
+    volumes = {
+        f"jupyterhub-user-{username}": "/home/jovyan/work"
+    }
+    
+    if is_teacher:
+        volumes[courses_vol] = {"bind": "/srv/nbgrader/courses", "mode": "ro"}
+        volumes[templates_vol] = "/srv/nbgrader/templates"
+        
+    spawner.volumes = volumes
 
+
+c.Spawner.pre_spawn_hook = pre_spawn_hook
+
+# Giữ DockerSpawner.remove = False trong giai đoạn test để dễ debug container user.
+c.DockerSpawner.remove = False
+
+# Chuyển hướng mặc định khi đăng nhập thành công vào Jupyter Assignment Service GUI
+c.Spawner.default_url = "../../services/assignment-service/gui"
+
+# Khai báo jupyter-assignment-service vào JupyterHub với quyền admin để xác thực cookie & quản lý container
+c.JupyterHub.services = [
+    {
+        'name': 'assignment-service',
+        'url': 'http://jupyter-assignment-service:8001',
+        'api_token': 'super-secret-token',
+        'admin': True,
+    }
+]
 
 # =====================================================================
 # Cấu hình Xác thực LTI 1.3
 # =====================================================================
 from ltiauthenticator.lti13.auth import LTI13Authenticator
+import jwt
 
 
 class CustomLTIAuthenticator(LTI13Authenticator):
@@ -72,6 +148,44 @@ class CustomLTIAuthenticator(LTI13Authenticator):
             h = hashlib.sha256(full_username.encode('utf-8')).hexdigest()[:8]
             full_username = f"m_{safe_username[:16]}_{h}"
         return full_username
+
+    async def authenticate(self, handler, data=None):
+        user_dict = await super().authenticate(handler, data)
+        if user_dict:
+            try:
+                # Trích xuất LTI 1.3 claims từ id_token JWT (đã được class cha xác thực thành công)
+                id_token_jwt = handler.get_argument('id_token')
+                decoded = jwt.decode(id_token_jwt, options={"verify_signature": False})
+                
+                context_claim = decoded.get("https://purl.imsglobal.org/spec/lti/claim/context", {})
+                course_id = context_claim.get("id", "demo")
+                
+                resource_link_claim = decoded.get("https://purl.imsglobal.org/spec/lti/claim/resource_link", {})
+                resource_link_id = resource_link_claim.get("id", "lab01_function")
+                
+                username = user_dict["name"]
+                
+                roles = decoded.get("https://purl.imsglobal.org/spec/lti/claim/roles", [])
+                role_str = ",".join(roles) if isinstance(roles, list) else str(roles)
+                
+                # Gửi thông tin LTI launch sang jupyter-assignment-service
+                import httpx
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        "http://jupyter-assignment-service:8001/services/assignment-service/api/internal/lti-launch",
+                        json={
+                            "username": self.normalize_username(username),
+                            "moodle_course_id": course_id,
+                            "moodle_resource_link_id": resource_link_id,
+                            "role": role_str
+                        },
+                        headers={"Authorization": "Bearer super-secret-token"},
+                        timeout=5.0
+                    )
+            except Exception as e:
+                self.log.error(f"Error intercepting LTI launch: {e}")
+                
+        return user_dict
 
 
 c.JupyterHub.authenticator_class = CustomLTIAuthenticator
@@ -106,25 +220,13 @@ JUPYTERHUB_COOKIE_SAMESITE = env("JUPYTERHUB_COOKIE_SAMESITE", "Lax")
 # =====================================================================
 # Cấu hình Cookie / CORS / Nhúng IFrame (Embed/IFrame)
 # =====================================================================
-# Cấu hình file /etc/jupyter/jupyter_server_config.py cho JupyterLab (single-user server)
-os.makedirs("/etc/jupyter", exist_ok=True)
-with open("/etc/jupyter/jupyter_server_config.py", "w", encoding="utf-8") as f:
-    f.write(
-        f"""c = get_config()
-c.ServerApp.allow_origin = '{MOODLE_WWWROOT}'
-c.ServerApp.tornado_settings = {{
-    'headers': {{
-        'Content-Security-Policy': "frame-ancestors 'self' {MOODLE_WWWROOT}",
-        'Access-Control-Allow-Origin': '{MOODLE_WWWROOT}',
-        'X-Frame-Options': ''
-    }},
-    'cookie_options': {{
-        'samesite': '{JUPYTERHUB_COOKIE_SAMESITE}',
-        'secure': {str(JUPYTERHUB_COOKIE_SECURE)}
-    }}
-}}
-"""
-    )
+# Truyền cấu hình sang cho container single-user qua biến môi trường
+c.DockerSpawner.environment = {
+    "MOODLE_WWWROOT": MOODLE_WWWROOT,
+    "JUPYTERHUB_COOKIE_SAMESITE": JUPYTERHUB_COOKIE_SAMESITE,
+    "JUPYTERHUB_COOKIE_SECURE": "True" if JUPYTERHUB_COOKIE_SECURE else "False"
+}
+
 
 # Cấu hình cookie của JupyterHub thông qua tornado_settings
 c.JupyterHub.tornado_settings = {
@@ -136,5 +238,6 @@ c.JupyterHub.tornado_settings = {
     "cookie_options": {
         "samesite": JUPYTERHUB_COOKIE_SAMESITE,
         "secure": JUPYTERHUB_COOKIE_SECURE,
+        "path": "/",
     }
 }

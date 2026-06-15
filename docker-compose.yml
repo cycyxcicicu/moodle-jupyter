@@ -16,6 +16,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - moodle-jupyter-net
 
   moodle:
     build:
@@ -43,6 +45,8 @@ services:
       - "${MOODLE_HOST_PORT:-18080}:80"
     volumes:
       - ./data/moodledata:/var/moodledata
+    networks:
+      - moodle-jupyter-net
 
   jupyterhub:
     build:
@@ -70,7 +74,44 @@ services:
     volumes:
       - jupyter_users:/home
       - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - moodle-jupyter-net
+
+  jupyter-assignment-service:
+    build:
+      context: ./jupyter-assignment-service
+      dockerfile: Dockerfile
+    container_name: ${PROJECT_NAME:-moodle-jupyter-platform}_jupyter-assignment-service
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - nbgrader-courses:/srv/nbgrader/courses
+      - nbgrader-templates:/srv/nbgrader/templates
+      - nbgrader-exchange:/srv/nbgrader/exchange
+    environment:
+      - JUPYTERHUB_API_URL=http://jupyterhub:8000/hub/api
+      - JUPYTERHUB_API_TOKEN=super-secret-token
+    networks:
+      - moodle-jupyter-net
+    depends_on:
+      - jupyterhub
+
+  jupyter-singleuser:
+    build:
+      context: ./jupyter-singleuser
+      dockerfile: Dockerfile
+    image: moodle-jupyter-singleuser:latest
+    profiles:
+      - jupyterhub-spawnable
 
 volumes:
   postgres_data:
   jupyter_users:
+  nbgrader-exchange:
+  nbgrader-courses:
+  nbgrader-templates:
+
+networks:
+  moodle-jupyter-net:
+    name: moodle-jupyter-net
+    driver: bridge
+

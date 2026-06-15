@@ -32,7 +32,7 @@ set +a
 
 # 4. Build các container
 echo "Đang build các container..."
-docker compose build
+docker compose --profile jupyterhub-spawnable build jupyter-singleuser jupyter-assignment-service jupyterhub moodle postgres
 
 # 5. Khởi động Postgres và Moodle trước (chưa khởi động jupyterhub)
 echo "Đang khởi động PostgreSQL và Moodle..."
@@ -50,9 +50,29 @@ if ! ./scripts/configure-lti.sh; then
     exit 1
 fi
 
-# 9. Khởi động và bắt buộc tạo lại container jupyterhub để nạp env mới cập nhật
-echo "Đang khởi động và tạo lại JupyterHub..."
-docker compose up -d --force-recreate jupyterhub
+# 9. Khởi động và bắt buộc tạo lại container jupyterhub cùng jupyter-assignment-service để nạp env mới cập nhật
+echo "Đang khởi động và tạo lại JupyterHub & Assignment Service..."
+docker compose up -d --force-recreate jupyterhub jupyter-assignment-service
+
+# 9.5. Khởi tạo cấu trúc thư mục và dữ liệu mẫu cho nbgrader
+echo "Đang khởi tạo cấu trúc thư mục và dữ liệu mẫu cho nbgrader..."
+docker run --rm -u root \
+  -v "${PROJECT_NAME:-moodle-jupyter-platform}_nbgrader-courses:/srv/nbgrader/courses" \
+  -v "${PROJECT_NAME:-moodle-jupyter-platform}_nbgrader-templates:/srv/nbgrader/templates" \
+  -v "${PROJECT_NAME:-moodle-jupyter-platform}_nbgrader-exchange:/srv/nbgrader/exchange" \
+  -v "$PROJECT_ROOT/scripts:/tmp/scripts" \
+  moodle-jupyter-singleuser:latest \
+  bash -c "
+    mkdir -p /srv/nbgrader/templates/moodle_teacher_demo/python_basic/lab01_function && \
+    python3 /tmp/scripts/create_sample_assignment.py /srv/nbgrader/templates/moodle_teacher_demo/python_basic/lab01_function/lab01_function.ipynb && \
+    python3 /usr/local/bin/create_nbgrader_course.py --nbgrader-course-id moodle_course_demo && \
+    cp -r /srv/nbgrader/templates/moodle_teacher_demo/python_basic/lab01_function /srv/nbgrader/courses/moodle_course_demo/source/ && \
+    mkdir -p /srv/nbgrader/exchange && \
+    chmod 777 /srv/nbgrader/exchange && \
+    JOVYAN_UID=\$(id -u jovyan) && \
+    JOVYAN_GID=\$(id -g jovyan) && \
+    chown -R \$JOVYAN_UID:\$JOVYAN_GID /srv/nbgrader
+  "
 
 # 10. Chạy doctor chẩn đoán sức khỏe hệ thống
 echo "Đang chạy chẩn đoán sức khỏe..."

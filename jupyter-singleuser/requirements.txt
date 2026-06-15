@@ -1,0 +1,8 @@
+jupyterhub==5.4.6
+jupyterlab==4.2.1
+pandas==2.2.2
+numpy==1.26.4
+matplotlib==3.8.4
+sqlalchemy==2.0.30
+psycopg2-binary==2.9.9
+nbgrader==0.9.3

@@ -4,26 +4,63 @@ Dự án này cung cấp môi trường chạy song song và tự động tích 
 
 ---
 
-## Kiến trúc Hệ thống
+## Kiến trúc Hệ thống (DockerSpawner Model)
 
-Hệ thống được cấu trúc dựa trên 3 dịch vụ Docker chính:
+Hệ thống được cấu trúc dựa trên các dịch vụ chính được cô lập nhằm tăng hiệu năng, bảo mật và khả năng mở rộng:
 
 1. **`postgres` (PostgreSQL 16)**:
    - Cơ sở dữ liệu duy nhất dùng chung cho toàn bộ dự án.
    - Khi khởi động lần đầu, một SQL script (`postgres/init/01-create-databases.sql`) sẽ tự động chạy để tạo **2 database riêng biệt**:
      - `moodle` (sử dụng bởi user `moodle_user`)
      - `jupyterhub` (sử dụng bởi user `jupyterhub_user`)
-   - Quyền hạn của mỗi user được giới hạn và cô lập chỉ trong database của riêng họ.
 
 2. **`moodle` (Moodle 4.5+ / PHP 8.3 & Apache)**:
-   - Đóng vai trò là **LTI 1.3 Platform** (nơi cung cấp khóa học và kích hoạt hoạt động học tập).
+   - Đóng vai trò là **LTI 1.3 Platform** (nơi cung cấp khóa học và chứa hoạt động học tập).
    - Sử dụng database `moodle`.
-   - Cấu hình LTI Tool JupyterHub được đăng ký tự động và quản lý thông qua PHP CLI script (`setup_jupyter_lti.php`) chạy trong context của Moodle.
+   - Đăng ký và quản lý LTI Tool JupyterHub tự động bằng CLI script `setup_jupyter_lti.php`.
 
-3. **`jupyterhub` (JupyterHub / JupyterLab & Python)**:
-   - Đóng vai trò là **LTI 1.3 Tool** (cung cấp môi trường Jupyter Notebook/Lab cho học viên).
-   - Sử dụng database `jupyterhub` thông qua biến `JUPYTERHUB_DB_URL`.
-   - Xác thực người dùng bằng `LTI13Authenticator`, nạp cấu hình LTI từ file tự động sinh ra `generated/lti.env`.
+3. **`jupyterhub` (JupyterHub Orchestrator)**:
+   - Đóng vai trò là **Hub Server & LTI 1.3 Tool** (nhận diện xác thực người dùng qua LTI 1.3).
+   - Sử dụng database `jupyterhub`.
+   - **Mount docker socket (`/var/run/docker.sock`)**: Cho phép JupyterHub tương tác trực tiếp với Docker Engine trên host. Khi học viên đăng nhập qua Moodle, Hub sẽ tự động ra lệnh tạo và khởi chạy một container single-user riêng biệt cho học viên đó.
+
+4. **`jupyter-singleuser` (Môi trường của học viên)**:
+   - Không khởi động trực tiếp từ docker-compose, mà được build sẵn thành image `moodle-jupyter-singleuser:latest`.
+   - Mỗi học viên khi đăng nhập sẽ có một container riêng chạy độc lập từ image này.
+   - Chứa toàn bộ môi trường thực hành: Python 3 (pandas, numpy, scipy, matplotlib...) và Java 17 (với nhân **IJava Kernel**).
+
+---
+
+## Cơ chế Hoạt động & Logic Tương tác
+
+Quy trình hoạt động khi học viên click vào liên kết JupyterLab trên Moodle:
+
+```mermaid
+sequenceDiagram
+    participant Student as Trình duyệt Học viên
+    participant Moodle as Moodle Container
+    participant Hub as JupyterHub Container
+    participant Docker as Docker Engine (Host)
+    participant SingleUser as Single-user Container (Học viên)
+
+    Student->>Moodle: Click vào hoạt động "Jupyter Lab"
+    Moodle->>Student: Trả về form POST tự động (LTI 1.3 Launch Request)
+    Student->>Hub: Gửi yêu cầu LTI 1.3 (xác thực SSO)
+    Hub->>Hub: CustomLTIAuthenticator kiểm tra chữ ký & chuẩn hóa username (moodle_xxx)
+    Hub->>Docker: Yêu cầu tạo container "jupyter-moodle_xxx" (qua Docker Socket)
+    Docker->>Docker: Khởi tạo container từ image moodle-jupyter-singleuser
+    Docker->>Docker: Mount volume jupyterhub-user-moodle_xxx vào /home/jovyan/work
+    Docker-->>Hub: Báo tin container học viên đã sẵn sàng hoạt động
+    Hub->>Student: Chuyển hướng trình duyệt học viên đến /user/moodle_xxx/lab
+    Student->>Hub: Truy cập /user/moodle_xxx/lab (Proxy chuyển tiếp đến Single-user Container)
+    Hub->>SingleUser: Proxy request đến container học viên
+    SingleUser-->>Student: Tải giao diện JupyterLab trong iframe của Moodle (với CSP hợp lệ)
+```
+
+1. **Xác thực và Chuẩn hóa**: LTI Authenticator giải mã mã thông báo JWT từ Moodle, lấy thông tin tài khoản và chuẩn hóa thành định dạng username an toàn (ví dụ: `moodle_5f2`).
+2. **Cô lập Môi trường (Spawn)**: `DockerSpawner` gọi Docker Engine để tạo container cá nhân có tên `jupyter-moodle-5f2`. Nhờ vậy, tài nguyên (CPU/RAM) của học viên này không ảnh hưởng đến học viên khác hay hệ thống Hub chính.
+3. **Bền vững dữ liệu (Persistence)**: Mỗi container được mount với một docker volume riêng (`jupyterhub-user-moodle-5f2`). Dữ liệu bài học của học viên được lưu trữ độc lập tại `/home/jovyan/work` và không bị mất khi container bị tắt hoặc tạo lại.
+4. **Nhúng IFrame động (Dynamic CSP)**: Khi container single-user khởi động, nó tự động nạp cấu hình `jupyter_server_config.py` đọc các biến môi trường cấu hình CSP và origin. Điều này cho phép Moodle (`http://localhost:18080`) nhúng giao diện JupyterLab bên trong iframe một cách an toàn mà không bị trình duyệt chặn.
 
 ---
 
@@ -38,10 +75,14 @@ moodle-jupyter-platform/
 │   └── config/
 │       ├── config.php.template   # Template cấu hình Moodle kết nối DB
 │       └── setup_jupyter_lti.php # PHP CLI script cấu hình LTI 1.3
-├── jupyterhub/               # Cấu hình container JupyterHub
-│   ├── Dockerfile            # Build image JupyterHub
-│   ├── jupyterhub_config.py  # Cấu hình xác thực LTI, DB, normalizer
-│   └── requirements.txt      # Dependencies (bao gồm psycopg2-binary)
+├── jupyterhub/               # Cấu hình container JupyterHub (Orchestrator)
+│   ├── Dockerfile            # Build image JupyterHub gọn nhẹ
+│   ├── jupyterhub_config.py  # Cấu hình DockerSpawner, LTI Authenticator, Map Volumes
+│   └── requirements.txt      # Thư viện cho Hub (dockerspawner, psycopg2-binary...)
+├── jupyter-singleuser/       # Cấu hình môi trường cá nhân của học viên
+│   ├── Dockerfile            # Build image chứa Python, Java 17, IJava kernel
+│   ├── requirements.txt      # Danh sách thư viện Python học tập
+│   └── jupyter_server_config.py # Cấu hình cho phép nhúng iframe từ Moodle
 ├── postgres/
 │   └── init/
 │       └── 01-create-databases.sql # SQL khởi tạo DB và phân quyền
@@ -56,18 +97,19 @@ moodle-jupyter-platform/
 │   ├── wait-postgres.sh      # Đợi DB và database khởi tạo xong
 │   ├── wait-moodle.sh        # Đợi Moodle cài đặt hoàn thành
 │   ├── configure-lti.sh      # Gọi PHP script xuất config ra lti.env
-│   └── doctor.sh             # Chẩn đoán sức khỏe hệ thống
+│   └── doctor.sh             # Chẩn đoán sức khỏe hệ thống (hỗ trợ debug)
 ├── generated/                # Chứa file cấu hình LTI được sinh ra tự động
 │   └── .gitkeep
 ├── data/                     # Thư mục dữ liệu runtime local
 │   ├── moodledata/           # Dữ liệu tệp tin của Moodle (Moodle dataroot)
 │   └── backups/              # Thư mục chứa các tệp sao lưu (backups)
-└── docs/                     # Tài liệu hướng dẫn chi tiết
-    ├── architecture.md
-    ├── install-local.md
-    └── troubleshooting.md
+├── docs/                     # Tài liệu hướng dẫn chi tiết
+│   ├── architecture.md
+│   ├── install-local.md
+│   └── troubleshooting.md
 ├── .env.example              # Mẫu file cấu hình các biến môi trường
-└── docker-compose.yml        # Quản lý Docker container
+└── docker-compose.yml        # Quản lý Docker container chính
+```
 ```
 
 ---
@@ -148,3 +190,24 @@ Các port của host đã được đổi để tránh trùng lặp với các d
 ### 5. Lỗi IFrame / Cookie
 - **Triệu chứng**: Trước đây gặp lỗi màn hình trắng, `Refused to display... in a frame`, hoặc lỗi mất session Cookie (connection reset) khi nhúng JupyterHub trực tiếp dưới dạng IFrame/Embed trong Moodle.
 - **Khắc phục**: Hiện tại hệ thống đã được cấu hình mặc định là mở ở chế độ nhúng (**Embed** - `launchcontainer = 2`). Chúng tôi đã cấu hình `cookie_options` cho JupyterHub và single-user server với `SameSite=None` và `Secure=False`, đồng thời đặt header CSP `frame-ancestors` chỉ định chính xác nguồn gốc Moodle (`http://localhost:18080`) để đảm bảo nhúng an toàn và không bị chặn bởi các trình duyệt hiện đại.
+
+---
+
+## Phân quyền nbgrader & Nhận diện vai trò (MVP)
+
+Hệ thống sử dụng cơ chế mount động các volume chứa đề bài và chấm điểm của `nbgrader` dựa trên vai trò của người dùng:
+
+- **Giáo viên (Teacher/Admin)**:
+  - Nhận diện (MVP): Kiểm tra tên người dùng (username) có chứa chữ `teacher` hoặc bắt đầu bằng `moodle_teacher_`, hoặc nằm trong danh sách admin (`admin`, `moodle_admin`).
+  - Phân quyền: Được mount đầy đủ 3 volume:
+    - `nbgrader-exchange` (thư mục trao đổi bài làm tại `/srv/nbgrader/exchange`)
+    - `nbgrader-courses` (thư mục quản lý lớp học/bài nộp/điểm tại `/srv/nbgrader/courses`)
+    - `nbgrader-templates` (thư mục kho đề gốc tại `/srv/nbgrader/templates`)
+- **Học sinh (Student)**:
+  - Phân quyền: Chỉ được mount duy nhất volume `nbgrader-exchange` để nhận đề và nộp bài. Hoàn toàn không thể truy cập hay nhìn thấy thư mục `courses` và `templates`.
+
+> [!NOTE]
+> **Hướng phát triển tiếp theo (Production TODO)**:
+> - Kích hoạt lưu trạng thái xác thực `c.Authenticator.enable_auth_state = True` trong JupyterHub.
+> - Đọc trực tiếp các vai trò (roles) LTI 1.3 được Moodle gửi sang trong `auth_state` (như `Instructor`, `TeachingAssistant`, `Administrator`) thay vì nhận diện dựa trên tên đăng nhập.
+
