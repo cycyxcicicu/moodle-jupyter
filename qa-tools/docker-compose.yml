@@ -1,0 +1,67 @@
+services:
+    qa-postgres:
+        image: postgres:16
+        container_name: qa-postgres
+        ports:
+            - "${POSTGRES_PORT:-15433}:5432"
+        environment:
+            POSTGRES_USER: ${QA_DB_USER:-admin}
+            POSTGRES_PASSWORD: ${QA_DB_PASSWORD:-admin123}
+            POSTGRES_DB: ${POSTGRES_DB:-qa_default_db}
+        volumes:
+            - qa_postgres_data:/var/lib/postgresql/data
+            - ./postgres/init:/docker-entrypoint-initdb.d
+        healthcheck:
+            test:
+                ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+            interval: 5s
+            timeout: 5s
+            retries: 5
+        networks:
+            - qa-network
+
+    mantis:
+        build: ./mantis
+        container_name: mantis-app
+        ports:
+            - "${MANTIS_PORT:-18081}:80"
+        environment:
+            QA_DB_USER: ${QA_DB_USER:-admin}
+            QA_DB_PASSWORD: ${QA_DB_PASSWORD:-admin123}
+            MANTIS_DB_NAME: ${MANTIS_DB_NAME:-mantis_db}
+        volumes:
+            - mantis_config:/var/www/html/config
+            - mantis_files:/var/www/html/files
+        depends_on:
+            qa-postgres:
+                condition: service_healthy
+        networks:
+            - qa-network
+
+    testlink:
+        build: ./testlink
+        container_name: testlink-app
+        ports:
+            - "${TESTLINK_PORT:-18082}:80"
+        environment:
+            QA_DB_USER: ${QA_DB_USER:-admin}
+            QA_DB_PASSWORD: ${QA_DB_PASSWORD:-admin123}
+            TESTLINK_DB_NAME: ${TESTLINK_DB_NAME:-testlink_db}
+        volumes:
+            - testlink_uploads:/var/testlink/upload_area
+            - testlink_logs:/var/testlink/logs
+        depends_on:
+            qa-postgres:
+                condition: service_healthy
+        networks:
+            - qa-network
+
+volumes:
+    qa_postgres_data:
+    mantis_config:
+    mantis_files:
+    testlink_uploads:
+    testlink_logs:
+
+networks:
+    qa-network:
