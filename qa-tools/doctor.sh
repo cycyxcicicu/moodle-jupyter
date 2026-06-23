@@ -31,13 +31,13 @@ else
     echo "⚠️ Cảnh báo: File .env không tồn tại. Sử dụng giá trị mặc định."
     QA_DB_USER=admin
     POSTGRES_DB=qa_default_db
-    POSTGRES_PORT=15433
+    POSTGRES_PORT=15434
     MANTIS_PORT=18081
     TESTLINK_PORT=18082
 fi
 
 # 2. Kiểm tra trạng thái các container
-containers=("qa-postgres" "mantis-app" "testlink-app")
+containers=("infra-postgres" "mantis-app" "testlink-app")
 all_running=true
 
 for container in "${containers[@]}"; do
@@ -47,8 +47,10 @@ for container in "${containers[@]}"; do
         health=$($DOCKER_CMD inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}healthy{{end}}' "$container" 2>/dev/null || echo "healthy")
         if [ "$health" = "healthy" ]; then
             echo "✅ Container '$container' đang chạy (healthy)."
+        elif [ "$health" = "starting" ]; then
+            echo "⚠️ Container '$container' đang chạy và đang khởi động (starting)."
         else
-            echo "⚠️ Container '$container' đang chạy nhưng ở trạng thái: $health"
+            echo "❌ Container '$container' đang chạy nhưng không lành mạnh (Trạng thái: $health)."
             all_running=false
         fi
     elif [ "$status" = "not_found" ]; then
@@ -74,14 +76,14 @@ check_port() {
 
 echo "---------------------------------------------------------"
 echo "Kiểm tra cổng kết nối trên localhost:"
-check_port "${POSTGRES_PORT:-15433}" "PostgreSQL"
+check_port "${POSTGRES_PORT:-15434}" "PostgreSQL"
 check_port "${MANTIS_PORT:-18081}" "MantisBT"
 check_port "${TESTLINK_PORT:-18082}" "TestLink"
 
 # 4. Kiểm tra kết nối cơ sở dữ liệu
 echo "---------------------------------------------------------"
-echo "Kiểm tra kết nối CSDL trong container qa-postgres:"
-if $DOCKER_CMD exec -i qa-postgres pg_isready -U "${QA_DB_USER:-admin}" -d "${POSTGRES_DB:-qa_default_db}" >/dev/null 2>&1; then
+echo "Kiểm tra kết nối CSDL trong container infra-postgres:"
+if $DOCKER_CMD exec -i infra-postgres pg_isready -U "${QA_DB_USER:-admin}" -d "${POSTGRES_DB:-qa_default_db}" >/dev/null 2>&1; then
     echo "✅ Kết nối PostgreSQL thành công (sẵn sàng kết nối)."
 else
     echo "❌ Lỗi: PostgreSQL chưa sẵn sàng hoặc thông tin kết nối sai."

@@ -1,0 +1,3 @@
+jupyterhub==5.4.6
+oauthenticator==17.4.0
+dockerspawner==13.0.0

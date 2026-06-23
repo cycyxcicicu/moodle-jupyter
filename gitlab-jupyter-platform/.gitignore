@@ -1,0 +1,19 @@
+.env
+*.json
+backup/
+tmp/
+*.log
+
+# Python cache & compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# JupyterLab checkpoints
+.ipynb_checkpoints/
+.virtual_documents/
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -14,19 +14,19 @@ fi
 # Đảm bảo file config LTI tồn tại
 ./scripts/ensure-generated-env.sh
 
-POSTGRES_ADMIN_USER=${POSTGRES_ADMIN_USER:-postgres}
+POSTGRES_ADMIN_USER=${POSTGRES_ADMIN_USER:-postgres_user}
 MOODLE_DB_NAME=${MOODLE_DB_NAME:-moodle}
 JUPYTERHUB_DB_NAME=${JUPYTERHUB_DB_NAME:-jupyterhub}
 MOODLE_HOST_PORT=${MOODLE_HOST_PORT:-18080}
 JUPYTERHUB_HOST_PORT=${JUPYTERHUB_HOST_PORT:-18000}
-POSTGRES_HOST_PORT=${POSTGRES_HOST_PORT:-15432}
+POSTGRES_HOST_PORT=${POSTGRES_HOST_PORT:-15434}
 
 echo "=== ĐANG CHẠY CHẨN ĐOÁN HỆ THỐNG (DOCTOR CHECK) ==="
 status=0
 
 # 1. Kiểm tra Docker Compose Services
 echo -n "1. Kiểm tra trạng thái các service: "
-postgres_status=$(docker compose ps -q postgres)
+postgres_status=$(docker ps --filter name=infra-postgres --filter status=running -q | head -n 1)
 moodle_status=$(docker compose ps -q moodle)
 jupyterhub_status=$(docker compose ps -q jupyterhub)
 assignment_status=$(docker compose ps -q jupyter-assignment-service)
@@ -62,8 +62,8 @@ fi
 # 2. Kiểm tra database trong postgres
 if [ -n "$postgres_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$postgres_status")" = "true" ]; then
     echo -n "2. Kiểm tra database moodle và jupyterhub: "
-    moodle_db_exists=$(docker compose exec -T postgres psql -U "$POSTGRES_ADMIN_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$MOODLE_DB_NAME'" 2>/dev/null || echo "0")
-    jupyterhub_db_exists=$(docker compose exec -T postgres psql -U "$POSTGRES_ADMIN_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$JUPYTERHUB_DB_NAME'" 2>/dev/null || echo "0")
+    moodle_db_exists=$(docker exec -i infra-postgres psql -U "$POSTGRES_ADMIN_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$MOODLE_DB_NAME'" 2>/dev/null || echo "0")
+    jupyterhub_db_exists=$(docker exec -i infra-postgres psql -U "$POSTGRES_ADMIN_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$JUPYTERHUB_DB_NAME'" 2>/dev/null || echo "0")
     
     if [ "$moodle_db_exists" = "1" ] && [ "$jupyterhub_db_exists" = "1" ]; then
         echo "OK (Cả hai DB tồn tại)"
@@ -104,12 +104,12 @@ if [ -f "generated/lti.env" ] && [ -s "generated/lti.env" ]; then
     
     # So khớp LTI13_CLIENT_ID với database và kiểm tra cấu hình LTI nếu Postgres đang chạy
     if [ -n "$postgres_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$postgres_status")" = "true" ]; then
-        DB_USER=${POSTGRES_ADMIN_USER:-postgres}
-        DB_PASS=${POSTGRES_ADMIN_PASSWORD:-postgres}
+        DB_USER=${POSTGRES_ADMIN_USER:-postgres_user}
+        DB_PASS=${POSTGRES_ADMIN_PASSWORD:-postgres_password}
         DB_NAME=${MOODLE_DB_NAME:-moodle}
         
         # Lấy thông tin typeid và clientid từ database
-        db_tool_info=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT id, clientid FROM mdl_lti_types WHERE name = 'JupyterHub' ORDER BY id LIMIT 1;" 2>/dev/null || echo "")
+        db_tool_info=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT id, clientid FROM mdl_lti_types WHERE name = 'JupyterHub' ORDER BY id LIMIT 1;" 2>/dev/null || echo "")
         
         if [ -n "$db_tool_info" ]; then
             db_typeid=$(echo "$db_tool_info" | cut -d'|' -f1)
@@ -124,10 +124,10 @@ if [ -f "generated/lti.env" ] && [ -s "generated/lti.env" ]; then
             fi
             
             # Truy vấn các cấu hình LTI chi tiết
-            db_toolurl=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name = 'toolurl';" 2>/dev/null || echo "")
-            db_keytype=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name = 'keytype';" 2>/dev/null || echo "")
-            db_publickeyset=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name = 'publickeyset';" 2>/dev/null || echo "")
-            db_redirectionuris=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name = 'redirectionuris';" 2>/dev/null || echo "")
+            db_toolurl=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name = 'toolurl';" 2>/dev/null || echo "")
+            db_keytype=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name = 'keytype';" 2>/dev/null || echo "")
+            db_publickeyset=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name = 'publickeyset';" 2>/dev/null || echo "")
+            db_redirectionuris=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name = 'redirectionuris';" 2>/dev/null || echo "")
             
             # 2. Kiểm tra keytype phải là JWK_KEYSET
             if [ "$db_keytype" = "JWK_KEYSET" ]; then
@@ -156,7 +156,7 @@ if [ -f "generated/lti.env" ] && [ -s "generated/lti.env" ]; then
             fi
             
             # 5. Kiểm tra trùng lặp cấu hình trong lti_types_config
-            duplicates=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT name, COUNT(*) FROM mdl_lti_types_config WHERE typeid = '$db_typeid' GROUP BY name HAVING COUNT(*) > 1;" 2>/dev/null || echo "")
+            duplicates=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT name, COUNT(*) FROM mdl_lti_types_config WHERE typeid = '$db_typeid' GROUP BY name HAVING COUNT(*) > 1;" 2>/dev/null || echo "")
             if [ -z "$duplicates" ]; then
                 echo "   - Không có cấu hình trùng lặp trong Database: OK"
             else
@@ -165,7 +165,7 @@ if [ -f "generated/lti.env" ] && [ -s "generated/lti.env" ]; then
             fi
             
             # 6. Kiểm tra các config key có tiền tố lti_ (không được tồn tại)
-            db_lti_prefix_count=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name LIKE 'lti_%';" 2>/dev/null || echo "0")
+            db_lti_prefix_count=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM mdl_lti_types_config WHERE typeid = '$db_typeid' AND name LIKE 'lti_%';" 2>/dev/null || echo "0")
             if [ "$db_lti_prefix_count" = "0" ]; then
                 echo "   - Không có cấu hình tiền tố lti_ trong Database: OK"
             else

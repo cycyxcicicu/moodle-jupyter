@@ -30,7 +30,36 @@ echo "=== Đang dừng các container ==="
 docker compose down
 
 echo "=== Đang xóa các volume dữ liệu mặc định ==="
-docker volume rm -f "${PROJECT_NAME}_postgres_data" "${PROJECT_NAME}_jupyter_users" "${PROJECT_NAME}_nbgrader-exchange" || true
+docker volume rm -f "${PROJECT_NAME}_jupyter_users" "${PROJECT_NAME}_nbgrader-exchange" || true
+
+# Hỏi xác nhận reset cơ sở dữ liệu trên Postgres dùng chung (infra-postgres)
+read -r -p "Bạn có muốn làm sạch cơ sở dữ liệu trên infra-postgres (Hard Reset)? Nhập YES để xóa: " confirm_db
+case "$confirm_db" in
+    YES*|yes*)
+        if docker ps --filter name=infra-postgres --filter status=running -q | grep -q . ; then
+            echo "=== Đang xóa sạch cơ sở dữ liệu moodle và jupyterhub trên infra-postgres ==="
+            DB_USER=${POSTGRES_ADMIN_USER:-postgres_user}
+            DB_PASS=${POSTGRES_ADMIN_PASSWORD:-postgres_password}
+            DB_NAME=${POSTGRES_DB:-postgres_app_db}
+            MOODLE_DB_NAME=${MOODLE_DB_NAME:-moodle}
+            JUPYTERHUB_DB_NAME=${JUPYTERHUB_DB_NAME:-jupyterhub}
+            
+            # Đóng các kết nối đang mở trước khi drop DB
+            docker exec -i infra-postgres psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE pg_stat_activity.datname IN ('$MOODLE_DB_NAME', '$JUPYTERHUB_DB_NAME') AND pid <> pg_backend_pid();" >/dev/null 2>&1 || true
+            
+            docker exec -i infra-postgres psql -U "$DB_USER" -d "$DB_NAME" -c "DROP DATABASE IF EXISTS \"$MOODLE_DB_NAME\";" || true
+            docker exec -i infra-postgres psql -U "$DB_USER" -d "$DB_NAME" -c "DROP DATABASE IF EXISTS \"$JUPYTERHUB_DB_NAME\";" || true
+            
+            echo "Đang khởi tạo lại database trống..."
+            docker exec -i infra-postgres bash /docker-entrypoint-initdb.d/01-create-app-databases.sh || true
+        else
+            echo "⚠️ infra-postgres không chạy, không thể reset cơ sở dữ liệu."
+        fi
+        ;;
+    *)
+        echo "Đã giữ lại dữ liệu trong Database (Soft Reset)."
+        ;;
+esac
 
 # Hỏi xác nhận xóa volume chứa đề bài học (nbgrader-courses)
 read -r -p "Bạn có muốn xóa sạch volume dữ liệu môn học nbgrader-courses (chứa đề bài gốc và điểm)? Nhập YES để xóa: " confirm_courses

@@ -1,0 +1,6 @@
+- title: "Dong Bo Bai Tap"
+  description: "Cập nhật bài tập mới từ GitLab về Workspace"
+  icon: "fa-refresh"
+  type: "terminal"
+  source: "python3 /usr/local/bin/gitlab-auto-clone.py; echo ''; echo 'Đồng bộ hoàn tất! Nhấn Enter để đóng...'; read -r dummy"
+  cwd: "/home/jovyan"

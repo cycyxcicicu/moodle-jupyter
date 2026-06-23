@@ -30,16 +30,29 @@ set +a
 # 3. Đảm bảo file cấu hình LTI tồn tại trước khi build
 ./scripts/ensure-generated-env.sh
 
+# 3.5. Kiểm tra và khởi động database dùng chung (infra-postgres)
+echo "=== Kiểm tra PostgreSQL dùng chung (infra-postgres) ==="
+if ! docker ps --filter name=infra-postgres --filter status=running -q | grep -q . ; then
+    echo "⚠️ Phát hiện container 'infra-postgres' chưa khởi chạy."
+    if [ -d "infra-data" ]; then
+        echo "Đang tự động khởi chạy stack infra-data..."
+        docker compose -f infra-data/docker-compose.yml up -d postgres
+    else
+        echo "❌ Lỗi: Không tìm thấy thư mục infra-data để khởi động database."
+        exit 1
+    fi
+fi
+
+# 3.6. Đợi Postgres sẵn sàng & tạo xong các database trước khi khởi chạy ứng dụng
+./scripts/wait-postgres.sh
+
 # 4. Build các container
 echo "Đang build các container..."
-docker compose --profile jupyterhub-spawnable build jupyter-singleuser jupyter-assignment-service jupyterhub moodle postgres
+docker compose --profile jupyterhub-spawnable build jupyter-singleuser jupyter-assignment-service jupyterhub moodle
 
-# 5. Khởi động Postgres và Moodle trước (chưa khởi động jupyterhub)
-echo "Đang khởi động PostgreSQL và Moodle..."
-docker compose up -d postgres moodle
-
-# 6. Đợi Postgres sẵn sàng & tạo xong 2 database
-./scripts/wait-postgres.sh
+# 5. Khởi động Moodle trước (chưa khởi động jupyterhub)
+echo "Đang khởi động Moodle..."
+docker compose up -d moodle
 
 # 7. Đợi Moodle hoàn tất cài đặt cơ sở dữ liệu
 ./scripts/wait-moodle.sh

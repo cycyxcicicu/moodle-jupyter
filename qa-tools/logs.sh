@@ -30,11 +30,13 @@ else
             TARGET="testlink"
             ;;
         postgres|qa-postgres)
-            TARGET="qa-postgres"
+            echo "ℹ️  PostgreSQL hiện tại đang chạy chung trên container 'infra-postgres' thuộc stack infra-data."
+            echo "Xem log bằng cách: docker logs -f infra-postgres"
+            exit 0
             ;;
         *)
             echo "Lỗi: Dịch vụ '$SERVICE' không tồn tại."
-            echo "Cách dùng: ./logs.sh [mantis | testlink | qa-postgres]"
+            echo "Cách dùng: ./logs.sh [mantis | testlink | postgres]"
             exit 1
             ;;
     esac
