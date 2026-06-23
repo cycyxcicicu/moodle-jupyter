@@ -1,0 +1,74 @@
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: gitlab-minio
+    restart: unless-stopped
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ${MINIO_DATA_DIR}:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    networks:
+      - gitlab-net
+
+  minio-creator:
+    image: minio/mc:latest
+    container_name: gitlab-minio-creator
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD}; do
+        echo 'Waiting for MinIO...'
+        sleep 1
+      done;
+      for bucket in gitlab-artifacts gitlab-external-diffs gitlab-lfs gitlab-uploads gitlab-packages gitlab-dependency-proxy gitlab-terraform-state gitlab-pages gitlab-backups; do
+        if ! mc ls local/$$bucket >/dev/null 2>&1; then
+          mc mb local/$$bucket
+          echo \"Bucket $$bucket created.\"
+        else
+          echo \"Bucket $$bucket already exists.\"
+        fi
+      done;
+      exit 0;
+      "
+    networks:
+      - gitlab-net
+
+  gitlab:
+    image: ${GITLAB_IMAGE}
+    container_name: gitlab-ce
+    restart: unless-stopped
+    hostname: ${GITLAB_HOST:-gitlab.local}
+    ports:
+      - "${GITLAB_HTTP_PORT:-8929}:8929"
+      - "${GITLAB_SSH_PORT:-2424}:2424"
+    volumes:
+      - ${GITLAB_CONFIG_DIR}:/etc/gitlab
+      - ${GITLAB_LOGS_DIR}:/var/log/gitlab
+      - ${GITLAB_DATA_DIR}:/var/opt/gitlab
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - gitlab-net
+      - infra-data-net
+
+networks:
+  gitlab-net:
+    name: gitlab-local-net
+  infra-data-net:
+    external: true

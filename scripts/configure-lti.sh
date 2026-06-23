@@ -25,12 +25,12 @@ fi
 docker compose exec -T moodle bash -c "mkdir -p /var/moodledata/cache/cachestore_file/default_application && chown -R www-data:www-data /var/moodledata && chmod -R 775 /var/moodledata"
 
 echo "=== Truy vấn trực tiếp PostgreSQL để cấu hình LTI ==="
-DB_USER=${POSTGRES_ADMIN_USER:-postgres}
-DB_PASS=${POSTGRES_ADMIN_PASSWORD:-postgres}
+DB_USER=${POSTGRES_ADMIN_USER:-postgres_user}
+DB_PASS=${POSTGRES_ADMIN_PASSWORD:-postgres_password}
 DB_NAME=${MOODLE_DB_NAME:-moodle}
 
 # 1. Truy vấn lấy typeid và clientid từ mdl_lti_types
-db_info=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT id, clientid FROM mdl_lti_types WHERE name = 'JupyterHub' ORDER BY id LIMIT 1;" 2>/dev/null || echo "")
+db_info=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT id, clientid FROM mdl_lti_types WHERE name = 'JupyterHub' ORDER BY id LIMIT 1;" 2>/dev/null || echo "")
 
 if [ -z "$db_info" ]; then
     echo "Lỗi: Không thể kết nối cơ sở dữ liệu hoặc không tìm thấy LTI Tool 'JupyterHub' trong bảng mdl_lti_types."
@@ -46,11 +46,11 @@ if [ -z "$clientid" ]; then
 fi
 
 # 2. Truy vấn các cấu hình bắt buộc trong mdl_lti_types_config
-toolurl=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$typeid' AND name = 'toolurl';" 2>/dev/null || echo "")
-initiatelogin=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$typeid' AND name = 'initiatelogin';" 2>/dev/null || echo "")
-publickeyset=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$typeid' AND name = 'publickeyset';" 2>/dev/null || echo "")
-redirectionuris=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$typeid' AND name = 'redirectionuris';" 2>/dev/null || echo "")
-keytype=$(docker compose exec -T postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$typeid' AND name = 'keytype';" 2>/dev/null || echo "")
+toolurl=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$typeid' AND name = 'toolurl';" 2>/dev/null || echo "")
+initiatelogin=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$typeid' AND name = 'initiatelogin';" 2>/dev/null || echo "")
+publickeyset=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$typeid' AND name = 'publickeyset';" 2>/dev/null || echo "")
+redirectionuris=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$typeid' AND name = 'redirectionuris';" 2>/dev/null || echo "")
+keytype=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT value FROM mdl_lti_types_config WHERE typeid = '$typeid' AND name = 'keytype';" 2>/dev/null || echo "")
 
 if [ -z "$toolurl" ]; then
     echo "Lỗi: Không thể sinh lti.env vì thiếu cấu hình LTI trong Moodle (thiếu toolurl)."

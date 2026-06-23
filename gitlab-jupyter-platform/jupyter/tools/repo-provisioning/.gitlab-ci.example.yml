@@ -1,0 +1,40 @@
+# .gitlab-ci.example.yml
+# Hướng dẫn: Copy file này vào gitlab-ci.yml của dự án tools nếu muốn chạy tự động bằng GitLab CI/CD.
+# Đảm bảo bạn đã cấu hình các Variable sau trong GitLab CI/CD:
+# - GITLAB_URL: URL nội bộ của GitLab (ví dụ: http://gitlab-web:80)
+# - GITLAB_ADMIN_TOKEN: Token của admin/devops_admin (Scope: api)
+
+stages:
+  - provision
+
+variables:
+  TARGET_GROUP_PATH:
+    value: "lab-khoa-cntt-2026/lab01-python-basic"
+    description: "Đường dẫn subgroup đích trên GitLab (ví dụ: lab-khoa-cntt-2026/lab02-database)"
+  TEMPLATE_PROJECT_PATH:
+    value: "lab-khoa-cntt-2026/lab01-python-basic/assignment-template"
+    description: "Đường dẫn dự án đề bài mẫu (ví dụ: lab-khoa-cntt-2026/lab02-database/assignment-template)"
+  CSV_FILE:
+    value: "configs/lab01-example/students.example.csv"
+    description: "Đường dẫn file CSV mặc định trong repo, HOẶC chọn kiểu File bên cạnh rồi dán nội dung CSV vào"
+
+provision_lab:
+  stage: provision
+  image: python:3.11-alpine
+  before_script:
+    # Bắt buộc cài đặt git CLI để clone/push bài mẫu
+    - apk add --no-cache git
+    - git --version
+    - pip install -r requirements.txt
+  script:
+    - |
+      python create_lab_repos.py \
+        --csv "$CSV_FILE" \
+        --target-group-path "$TARGET_GROUP_PATH" \
+        --template-project-path "$TEMPLATE_PROJECT_PATH"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      when: manual
+    - when: manual

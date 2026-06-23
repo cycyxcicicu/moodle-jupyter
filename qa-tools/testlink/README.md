@@ -69,7 +69,7 @@ Tài liệu này bao gồm hai phần:
 *   Điền thông số kết nối tới container database PostgreSQL như sau:
     *   **Database Type:** Chọn **`PostgreSQL`**.
     *   **Database host:** Nhập **`qa-postgres`**.
-    *   **Database name:** Nhập **`qa_default_db`**.
+    *   **Database name:** Nhập **`testlink_db`**.
     *   **Table prefix:** **Để trống**.
     *   **Database admin login:** Nhập **`admin`**.
     *   **Database admin password:** Nhập **`admin123`**.

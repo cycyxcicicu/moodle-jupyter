@@ -60,7 +60,7 @@ c.JupyterHub.spawner_class = DockerSpawner
 c.DockerSpawner.image = "moodle-jupyter-singleuser:latest"
 
 # Mạng Docker cố định cho Hub và các single-user container
-c.DockerSpawner.network_name = "moodle-jupyter-net"
+c.DockerSpawner.network_name = "infra-data-net"
 c.DockerSpawner.use_internal_ip = True
 
 # Cấu hình IP và Port Hub lắng nghe để container con gọi ngược lại API

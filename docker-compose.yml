@@ -1,24 +1,4 @@
 services:
-  postgres:
-    image: postgres:16
-    container_name: ${PROJECT_NAME:-moodle-jupyter-platform}_postgres
-    environment:
-      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-postgres}
-      TZ: ${TZ:-Asia/Ho_Chi_Minh}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./postgres/init:/docker-entrypoint-initdb.d
-    ports:
-      - "127.0.0.1:${POSTGRES_HOST_PORT:-15432}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - moodle-jupyter-net
-
   moodle:
     build:
       context: ./moodle
@@ -30,7 +10,7 @@ services:
     environment:
       TZ: ${TZ:-Asia/Ho_Chi_Minh}
       MOODLE_WWWROOT: ${MOODLE_WWWROOT:-http://localhost:18080}
-      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_HOST: ${POSTGRES_HOST:-infra-postgres}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_DB: ${MOODLE_DB_NAME:-moodle}
       POSTGRES_USER: ${MOODLE_DB_USER:-moodle_user}
@@ -38,15 +18,12 @@ services:
       MOODLE_ADMIN_USER: ${MOODLE_ADMIN_USER:-admin}
       MOODLE_ADMIN_PASSWORD: ${MOODLE_ADMIN_PASSWORD:-admin123}
       MOODLE_ADMIN_EMAIL: ${MOODLE_ADMIN_EMAIL:-admin@example.com}
-    depends_on:
-      postgres:
-        condition: service_healthy
     ports:
       - "${MOODLE_HOST_PORT:-18080}:80"
     volumes:
-      - ./data/moodledata:/var/moodledata
+      - ${DATA_ROOT}/moodledata:/var/moodledata
     networks:
-      - moodle-jupyter-net
+      - infra-data-net
 
   jupyterhub:
     build:
@@ -62,20 +39,18 @@ services:
       TZ: ${TZ:-Asia/Ho_Chi_Minh}
       MOODLE_WWWROOT: ${MOODLE_WWWROOT:-http://localhost:18080}
       JUPYTERHUB_URL: ${JUPYTERHUB_URL:-http://localhost:18000}
-      JUPYTERHUB_DB_URL: ${JUPYTERHUB_DB_URL:-postgresql://jupyterhub_user:jupyterhub_password@postgres:5432/jupyterhub}
+      JUPYTERHUB_DB_URL: ${JUPYTERHUB_DB_URL:-postgresql://jupyterhub_user:jupyterhub_password@infra-postgres:5432/jupyterhub}
       LTI_USERNAME_KEY: ${LTI_USERNAME_KEY:-email}
     depends_on:
-      postgres:
-        condition: service_healthy
       moodle:
         condition: service_started
     ports:
       - "${JUPYTERHUB_HOST_PORT:-18000}:8000"
     volumes:
-      - jupyter_users:/home
+      - ${DATA_ROOT}/jupyter_users:/home
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
-      - moodle-jupyter-net
+      - infra-data-net
 
   jupyter-assignment-service:
     build:
@@ -84,14 +59,14 @@ services:
     container_name: ${PROJECT_NAME:-moodle-jupyter-platform}_jupyter-assignment-service
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - nbgrader-courses:/srv/nbgrader/courses
-      - nbgrader-templates:/srv/nbgrader/templates
-      - nbgrader-exchange:/srv/nbgrader/exchange
+      - ${DATA_ROOT}/nbgrader/courses:/srv/nbgrader/courses
+      - ${DATA_ROOT}/nbgrader/templates:/srv/nbgrader/templates
+      - ${DATA_ROOT}/nbgrader/exchange:/srv/nbgrader/exchange
     environment:
       - JUPYTERHUB_API_URL=http://jupyterhub:8000/hub/api
       - JUPYTERHUB_API_TOKEN=super-secret-token
     networks:
-      - moodle-jupyter-net
+      - infra-data-net
     depends_on:
       - jupyterhub
 
@@ -103,15 +78,8 @@ services:
     profiles:
       - jupyterhub-spawnable
 
-volumes:
-  postgres_data:
-  jupyter_users:
-  nbgrader-exchange:
-  nbgrader-courses:
-  nbgrader-templates:
-
 networks:
-  moodle-jupyter-net:
-    name: moodle-jupyter-net
-    driver: bridge
+  infra-data-net:
+    name: infra-data-net
+    external: true
 
