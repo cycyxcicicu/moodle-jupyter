@@ -29,15 +29,26 @@ PROJECT_NAME=${PROJECT_NAME:-moodle-jupyter-platform}
 echo "=== Đang dừng các container ==="
 docker compose down
 
-echo "=== Đang xóa các volume dữ liệu mặc định ==="
-docker volume rm -f "${PROJECT_NAME}_jupyter_users" "${PROJECT_NAME}_nbgrader-exchange" || true
+echo "=== Đang xóa các thư mục lưu trữ mặc định ==="
+if [ -n "${DATA_ROOT:-}" ] && [ -d "${DATA_ROOT}" ]; then
+    if [ -d "${DATA_ROOT}/jupyter_users" ]; then
+        echo "   - Đang dọn dẹp thư mục jupyter_users..."
+        rm -rf "${DATA_ROOT}/jupyter_users"/* 2>/dev/null || sudo rm -rf "${DATA_ROOT}/jupyter_users"/* || true
+    fi
+    if [ -d "${DATA_ROOT}/nbgrader/exchange" ]; then
+        echo "   - Đang dọn dẹp thư mục nbgrader/exchange..."
+        rm -rf "${DATA_ROOT}/nbgrader/exchange"/* 2>/dev/null || sudo rm -rf "${DATA_ROOT}/nbgrader/exchange"/* || true
+    fi
+else
+    docker volume rm -f "${PROJECT_NAME}_jupyter_users" "${PROJECT_NAME}_nbgrader-exchange" || true
+fi
 
-# Hỏi xác nhận reset cơ sở dữ liệu trên Postgres dùng chung (infra-postgres)
-read -r -p "Bạn có muốn làm sạch cơ sở dữ liệu trên infra-postgres (Hard Reset)? Nhập YES để xóa: " confirm_db
+# Hỏi xác nhận reset các cơ sở dữ liệu của dự án trên Postgres dùng chung (infra-postgres)
+read -r -p "Bạn có muốn xóa sạch các cơ sở dữ liệu của dự án này (moodle, jupyterhub, assignment_service) trên infra-postgres? Nhập YES để xóa: " confirm_db
 case "$confirm_db" in
     YES*|yes*)
         if docker ps --filter name=infra-postgres --filter status=running -q | grep -q . ; then
-            echo "=== Đang xóa sạch cơ sở dữ liệu moodle và jupyterhub trên infra-postgres ==="
+            echo "=== Đang xóa sạch cơ sở dữ liệu moodle, jupyterhub và assignment_service trên infra-postgres ==="
             DB_USER=${POSTGRES_ADMIN_USER:-postgres_user}
             DB_PASS=${POSTGRES_ADMIN_PASSWORD:-postgres_password}
             DB_NAME=${POSTGRES_DB:-postgres_app_db}
@@ -45,13 +56,17 @@ case "$confirm_db" in
             JUPYTERHUB_DB_NAME=${JUPYTERHUB_DB_NAME:-jupyterhub}
             
             # Đóng các kết nối đang mở trước khi drop DB
-            docker exec -i infra-postgres psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE pg_stat_activity.datname IN ('$MOODLE_DB_NAME', '$JUPYTERHUB_DB_NAME') AND pid <> pg_backend_pid();" >/dev/null 2>&1 || true
+            docker exec -i infra-postgres psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE pg_stat_activity.datname IN ('$MOODLE_DB_NAME', '$JUPYTERHUB_DB_NAME', '${ASSIGNMENT_DB_NAME:-assignment_service}') AND pid <> pg_backend_pid();" >/dev/null 2>&1 || true
             
             docker exec -i infra-postgres psql -U "$DB_USER" -d "$DB_NAME" -c "DROP DATABASE IF EXISTS \"$MOODLE_DB_NAME\";" || true
             docker exec -i infra-postgres psql -U "$DB_USER" -d "$DB_NAME" -c "DROP DATABASE IF EXISTS \"$JUPYTERHUB_DB_NAME\";" || true
+            docker exec -i infra-postgres psql -U "$DB_USER" -d "$DB_NAME" -c "DROP DATABASE IF EXISTS \"${ASSIGNMENT_DB_NAME:-assignment_service}\";" || true
             
-            echo "Đang khởi tạo lại database trống..."
+            echo "Đang khởi tạo lại database moodle và jupyterhub..."
             docker exec -i infra-postgres bash /docker-entrypoint-initdb.d/01-create-app-databases.sh || true
+            
+            echo "Đang khởi tạo lại database assignment_service..."
+            ./scripts/ensure-assignment-db.sh || true
         else
             echo "⚠️ infra-postgres không chạy, không thể reset cơ sở dữ liệu."
         fi
@@ -61,27 +76,35 @@ case "$confirm_db" in
         ;;
 esac
 
-# Hỏi xác nhận xóa volume chứa đề bài học (nbgrader-courses)
-read -r -p "Bạn có muốn xóa sạch volume dữ liệu môn học nbgrader-courses (chứa đề bài gốc và điểm)? Nhập YES để xóa: " confirm_courses
+# Hỏi xác nhận xóa thư mục chứa đề bài học (nbgrader-courses)
+read -r -p "Bạn có muốn xóa sạch dữ liệu môn học nbgrader-courses (chứa đề bài gốc và điểm)? Nhập YES để xóa: " confirm_courses
 case "$confirm_courses" in
     YES*|yes*)
-        echo "Đang xóa volume dữ liệu môn học nbgrader-courses..."
-        docker volume rm -f "${PROJECT_NAME}_nbgrader-courses" || true
+        echo "Đang dọn dẹp thư mục nbgrader-courses..."
+        if [ -n "${DATA_ROOT:-}" ] && [ -d "${DATA_ROOT}/nbgrader/courses" ]; then
+            rm -rf "${DATA_ROOT}/nbgrader/courses"/* 2>/dev/null || sudo rm -rf "${DATA_ROOT}/nbgrader/courses"/* || true
+        else
+            docker volume rm -f "${PROJECT_NAME}_nbgrader-courses" || true
+        fi
         ;;
     *)
-        echo "Đã giữ lại volume dữ liệu môn học nbgrader-courses."
+        echo "Đã giữ lại dữ liệu môn học nbgrader-courses."
         ;;
 esac
 
-# Hỏi xác nhận xóa volume chứa template đề bài học (nbgrader-templates)
-read -r -p "Bạn có muốn xóa sạch volume dữ liệu template đề bài nbgrader-templates? Nhập YES để xóa: " confirm_templates
+# Hỏi xác nhận xóa thư mục chứa template đề bài học (nbgrader-templates)
+read -r -p "Bạn có muốn xóa sạch dữ liệu template đề bài nbgrader-templates? Nhập YES để xóa: " confirm_templates
 case "$confirm_templates" in
     YES*|yes*)
-        echo "Đang xóa volume dữ liệu template đề bài nbgrader-templates..."
-        docker volume rm -f "${PROJECT_NAME}_nbgrader-templates" || true
+        echo "Đang dọn dẹp thư mục nbgrader-templates..."
+        if [ -n "${DATA_ROOT:-}" ] && [ -d "${DATA_ROOT}/nbgrader/templates" ]; then
+            rm -rf "${DATA_ROOT}/nbgrader/templates"/* 2>/dev/null || sudo rm -rf "${DATA_ROOT}/nbgrader/templates"/* || true
+        else
+            docker volume rm -f "${PROJECT_NAME}_nbgrader-templates" || true
+        fi
         ;;
     *)
-        echo "Đã giữ lại volume dữ liệu template đề bài nbgrader-templates."
+        echo "Đã giữ lại dữ liệu template đề bài nbgrader-templates."
         ;;
 esac
 

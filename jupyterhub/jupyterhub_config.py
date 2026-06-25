@@ -76,14 +76,27 @@ c.DockerSpawner.name_template = "jupyter-{username}"
 # Thư mục làm việc mặc định trong container con
 c.DockerSpawner.notebook_dir = "/home/jovyan/work"
 
-# Map volume riêng cho từng user và volume exchange dùng chung cho mọi user
-PROJECT_NAME = env("PROJECT_NAME", "moodle-jupyter-platform")
-exchange_vol = f"{PROJECT_NAME}_nbgrader-exchange"
-courses_vol = f"{PROJECT_NAME}_nbgrader-courses"
-templates_vol = f"{PROJECT_NAME}_nbgrader-templates"
+# Cấu hình đường dẫn lưu trữ host (DATA_ROOT)
+DATA_ROOT = env("DATA_ROOT", "")
+if not DATA_ROOT:
+    raise ValueError("Lỗi: Thiếu biến DATA_ROOT trong môi trường!")
+
+# Cấu hình API Token bảo mật
+JUPYTERHUB_API_TOKEN = env("JUPYTERHUB_API_TOKEN", "")
+if not JUPYTERHUB_API_TOKEN:
+    raise ValueError("Lỗi: Thiếu biến JUPYTERHUB_API_TOKEN trong môi trường!")
+
+# Cấu hình giới hạn tài nguyên container
+mem_limit = env("JUPYTERHUB_USER_MEM_LIMIT", None)
+if mem_limit:
+    c.DockerSpawner.mem_limit = mem_limit
+
+cpu_limit_val = env("JUPYTERHUB_USER_CPU_LIMIT", None)
+if cpu_limit_val:
+    c.DockerSpawner.cpu_limit = float(cpu_limit_val)
 
 c.DockerSpawner.volumes = {
-    "jupyterhub-user-{username}": "/home/jovyan/work"
+    f"{DATA_ROOT}/jupyter/users/{{username}}": "/home/jovyan/work"
 }
 
 def is_teacher_user(username: str) -> bool:
@@ -95,18 +108,19 @@ def is_teacher_user(username: str) -> bool:
     )
 
 
-# Hook tiền khởi động để mount động volume khóa học chỉ cho Giáo viên/Admin ở chế độ Read-Only
+# Hook tiền khởi động để mount động volume khóa học chỉ cho Giáo viên/Admin ở chế độ Read-Write (rw)
 def pre_spawn_hook(spawner):
     username = spawner.user.name
     is_teacher = spawner.user.admin or is_teacher_user(username)
     
     volumes = {
-        f"jupyterhub-user-{username}": "/home/jovyan/work"
+        f"{DATA_ROOT}/jupyter/users/{username}": "/home/jovyan/work"
     }
     
     if is_teacher:
-        volumes[courses_vol] = {"bind": "/srv/nbgrader/courses", "mode": "ro"}
-        volumes[templates_vol] = "/srv/nbgrader/templates"
+        volumes[f"{DATA_ROOT}/nbgrader/courses"] = {"bind": "/srv/nbgrader/courses", "mode": "rw"}
+        volumes[f"{DATA_ROOT}/nbgrader/templates"] = {"bind": "/srv/nbgrader/templates", "mode": "rw"}
+        volumes[f"{DATA_ROOT}/nbgrader/exchange"] = {"bind": "/srv/nbgrader/exchange", "mode": "rw"}
         
     spawner.volumes = volumes
 
@@ -124,7 +138,7 @@ c.JupyterHub.services = [
     {
         'name': 'assignment-service',
         'url': 'http://jupyter-assignment-service:8001',
-        'api_token': 'super-secret-token',
+        'api_token': JUPYTERHUB_API_TOKEN,
         'admin': True,
     }
 ]
@@ -159,9 +173,11 @@ class CustomLTIAuthenticator(LTI13Authenticator):
                 
                 context_claim = decoded.get("https://purl.imsglobal.org/spec/lti/claim/context", {})
                 course_id = context_claim.get("id", "demo")
+                course_title = context_claim.get("title") or context_claim.get("label") or ""
                 
                 resource_link_claim = decoded.get("https://purl.imsglobal.org/spec/lti/claim/resource_link", {})
                 resource_link_id = resource_link_claim.get("id", "lab01_function")
+                resource_link_title = resource_link_claim.get("title") or ""
                 
                 username = user_dict["name"]
                 
@@ -176,10 +192,12 @@ class CustomLTIAuthenticator(LTI13Authenticator):
                         json={
                             "username": self.normalize_username(username),
                             "moodle_course_id": course_id,
+                            "moodle_course_title": course_title,
                             "moodle_resource_link_id": resource_link_id,
+                            "moodle_resource_link_title": resource_link_title,
                             "role": role_str
                         },
-                        headers={"Authorization": "Bearer super-secret-token"},
+                        headers={"Authorization": f"Bearer {JUPYTERHUB_API_TOKEN}"},
                         timeout=5.0
                     )
             except Exception as e:

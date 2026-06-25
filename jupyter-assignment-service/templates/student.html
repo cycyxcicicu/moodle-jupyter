@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Bài tập Jupyter - Moodle</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 15px;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+        .header-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            padding: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 {
+            font-size: 18px;
+            margin: 0;
+            color: #1a1a1a;
+        }
+        .warning-box {
+            background: #fffbeb;
+            border-left: 4px solid #d97706;
+            padding: 8px 12px;
+            font-size: 13px;
+            color: #b45309;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .btn {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-left: 5px;
+        }
+        .btn:hover {
+            background: #1d4ed8;
+        }
+        .btn-success {
+            background: #10b981;
+        }
+        .btn-success:hover {
+            background: #059669;
+        }
+        .iframe-container {
+            flex-grow: 1;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255,255,255,0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header-card">
+        <div>
+            <h1>Đề bài: {{ assignment_title or assignment_id }} (Lớp: {{ course_title or moodle_course_id }})</h1>
+            <span id="score-display" style="font-size: 13px; color: #555;">Trạng thái: Đang tải...</span>
+            <span id="timer-display" style="font-size: 14px; font-weight: bold; color: #ef4444; margin-left: 15px; display: none;">Thời gian còn lại: --:--</span>
+        </div>
+        <div>
+            <button class="btn" id="btn-open" onclick="openAssignment()">Bắt đầu làm bài</button>
+            <button class="btn btn-success" id="btn-submit" onclick="submitAssignment()" style="display:none;">Nộp bài</button>
+        </div>
+    </div>
+
+    <div class="warning-box">
+        ⚠️ <strong>LƯU Ý QUAN TRỌNG:</strong> Vui lòng nhấn nút <strong>Save (hoặc Ctrl+S)</strong> trong giao diện JupyterLab trước khi bấm nút <strong>Nộp bài</strong>.
+    </div>
+
+    <div class="iframe-container">
+        <div class="overlay" id="loading-overlay">
+            <div class="loader" id="spinner" style="display:none;"></div>
+            <p id="overlay-text">Hãy click nút "Bắt đầu làm bài" để tải đề bài và mở môi trường học tập.</p>
+        </div>
+        <iframe id="notebook-iframe"></iframe>
+    </div>
+
+    <script>
+        let timerInterval = null;
+        let remainingSeconds = null;
+
+        async function checkStatus() {
+            const res = await fetch(`/services/assignment-service/api/student/status?moodle_course_id={{ moodle_course_id }}&assignment_id={{ assignment_id }}`);
+            const data = await res.json();
+            
+            let scoreText = `Trạng thái: <strong>${data.status}</strong>`;
+            if (data.submitted_at) {
+                scoreText += ` | Thời gian nộp: <strong>${data.submitted_at}</strong>`;
+            }
+            document.getElementById('score-display').innerHTML = scoreText;
+
+            if (data.type === 'EXAM') {
+                document.getElementById('timer-display').style.display = 'inline';
+                
+                // Handle lock state for finished exam
+                if (data.exam_status === 'SUBMITTED' || data.exam_status === 'AUTO_SUBMITTED' || data.exam_status === 'EXPIRED' || data.exam_status === 'LOCKED') {
+                    document.getElementById('btn-open').disabled = true;
+                    document.getElementById('btn-submit').style.display = 'none';
+                    document.getElementById('loading-overlay').style.display = 'flex';
+                    document.getElementById('spinner').style.display = 'none';
+                    document.getElementById('overlay-text').innerHTML = `<span style="color:#ef4444; font-weight:bold; font-size: 16px;">Bài thi đã kết thúc (Trạng thái: ${data.exam_status}). Giao diện làm bài đã bị khóa.</span>`;
+                    document.getElementById('notebook-iframe').src = '';
+                    if (timerInterval) clearInterval(timerInterval);
+                    document.getElementById('timer-display').innerText = "Thời gian làm bài: Đã kết thúc";
+                    return;
+                }
+
+                if (data.exam_status === 'IN_PROGRESS') {
+                    remainingSeconds = data.remaining_seconds;
+                    startTimer();
+                }
+            }
+        }
+
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            
+            function updateTimerUI() {
+                if (remainingSeconds === null) return;
+                if (remainingSeconds <= 0) {
+                    clearInterval(timerInterval);
+                    document.getElementById('timer-display').innerText = "Thời gian làm bài: Hết giờ!";
+                    autoSubmitExam();
+                    return;
+                }
+                
+                const mins = Math.floor(remainingSeconds / 60);
+                const secs = remainingSeconds % 60;
+                document.getElementById('timer-display').innerText = `Thời gian còn lại: ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                remainingSeconds--;
+            }
+            
+            updateTimerUI();
+            timerInterval = setInterval(updateTimerUI, 1000);
+        }
+
+        function triggerSaveInIframe() {
+            const iframe = document.getElementById('notebook-iframe');
+            if (iframe && iframe.contentDocument) {
+                try {
+                    // 1. Tìm nút Save bằng thuộc tính data-command của JupyterLab
+                    let saveBtn = iframe.contentDocument.querySelector('[data-command="docmanager:save"]');
+                    
+                    // 2. Fallback: tìm theo title
+                    if (!saveBtn) {
+                        saveBtn = iframe.contentDocument.querySelector('button[title*="Save"]');
+                    }
+                    
+                    // 3. Fallback: tìm theo class icon
+                    if (!saveBtn) {
+                        const icon = iframe.contentDocument.querySelector('.jp-SaveIcon');
+                        if (icon) {
+                            saveBtn = icon.closest('button') || icon;
+                        }
+                    }
+                    
+                    if (saveBtn) {
+                        console.log("Triggering save via button click...");
+                        saveBtn.click();
+                    } else {
+                        console.log("Triggering save via Ctrl+S KeyboardEvent...");
+                        // Gửi tổ hợp phím Ctrl + S
+                        const event = new KeyboardEvent('keydown', {
+                            bubbles: true,
+                            cancelable: true,
+                            key: 's',
+                            keyCode: 83,
+                            ctrlKey: true
+                        });
+                        iframe.contentDocument.dispatchEvent(event);
+                        if (iframe.contentWindow.document.activeElement) {
+                            iframe.contentWindow.document.activeElement.dispatchEvent(event);
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Không thể truy cập trực tiếp iframe DOM để tự động lưu:", e);
+                }
+            }
+        }
+
+        async function autoSubmitExam() {
+            document.getElementById('timer-display').innerText = "Đang tự động nộp bài...";
+            document.getElementById('btn-submit').disabled = true;
+            document.getElementById('loading-overlay').style.display = 'flex';
+            document.getElementById('overlay-text').innerText = "Thời gian làm bài đã hết! Hệ thống đang tự động lưu và thu bài của bạn...";
+            
+            // Tự động lưu bài trước khi nộp
+            triggerSaveInIframe();
+            
+            // Chờ 1 giây để JupyterLab hoàn tất lưu file
+            setTimeout(async () => {
+                try {
+                    const res = await fetch('/services/assignment-service/api/student/submit', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            moodle_course_id: "{{ moodle_course_id }}",
+                            assignment_id: "{{ assignment_id }}"
+                        })
+                    });
+                    const data = await res.json();
+                } catch (e) {
+                    console.error("Lỗi khi tự động nộp bài:", e);
+                } finally {
+                    // Reload status after submit to lock UI
+                    setTimeout(checkStatus, 1000);
+                }
+            }, 1000);
+        }
+
+        async function openAssignment() {
+            document.getElementById('btn-open').disabled = true;
+            document.getElementById('overlay-text').innerText = "Đang kiểm tra và chuẩn bị môi trường Jupyter, vui lòng đợi...";
+            document.getElementById('spinner').style.display = 'block';
+
+            const res = await fetch('/services/assignment-service/api/student/open', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    moodle_course_id: "{{ moodle_course_id }}",
+                    assignment_id: "{{ assignment_id }}"
+                })
+            });
+            const data = await res.json();
+            
+            if(data.status === 'WAITING') {
+                document.getElementById('overlay-text').innerText = data.message || "Môi trường đang khởi tạo, vui lòng đợi vài giây...";
+                document.getElementById('btn-open').disabled = false;
+                document.getElementById('spinner').style.display = 'none';
+            } else if(data.status === 'READY') {
+                document.getElementById('loading-overlay').style.display = 'none';
+                document.getElementById('notebook-iframe').src = data.notebook_url;
+                document.getElementById('btn-submit').style.display = 'inline-block';
+                document.getElementById('btn-open').innerText = "Mở lại bài";
+                document.getElementById('btn-open').disabled = false;
+            } else {
+                document.getElementById('overlay-text').innerText = data.detail || "Không mở được bài tập.";
+                document.getElementById('btn-open').disabled = false;
+                document.getElementById('spinner').style.display = 'none';
+            }
+            checkStatus();
+        }
+
+        async function submitAssignment() {
+            if(!confirm("Hệ thống sẽ tự động lưu bài làm mới nhất của bạn (Ctrl+S) trước khi nộp. Bạn có chắc chắn muốn nộp bài?")) return;
+            document.getElementById('btn-submit').disabled = true;
+            
+            // Tự động lưu bài trước khi nộp
+            triggerSaveInIframe();
+            
+            // Chờ 1 giây để JupyterLab hoàn tất lưu file
+            setTimeout(async () => {
+                try {
+                    const res = await fetch('/services/assignment-service/api/student/submit', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            moodle_course_id: "{{ moodle_course_id }}",
+                            assignment_id: "{{ assignment_id }}"
+                        })
+                    });
+                    const data = await res.json();
+                    alert(data.message || data.detail);
+                } catch (e) {
+                    console.error("Lỗi khi nộp bài:", e);
+                    alert("Có lỗi xảy ra khi nộp bài!");
+                } finally {
+                    document.getElementById('btn-submit').disabled = false;
+                    checkStatus();
+                }
+            }, 1000);
+        }
+
+        // Load status
+        checkStatus();
+    </script>
+</body>
+</html>

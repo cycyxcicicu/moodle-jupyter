@@ -61,14 +61,15 @@ fi
 
 # 2. Kiểm tra database trong postgres
 if [ -n "$postgres_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$postgres_status")" = "true" ]; then
-    echo -n "2. Kiểm tra database moodle và jupyterhub: "
+    echo -n "2. Kiểm tra database moodle, jupyterhub và assignment_service: "
     moodle_db_exists=$(docker exec -i infra-postgres psql -U "$POSTGRES_ADMIN_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$MOODLE_DB_NAME'" 2>/dev/null || echo "0")
     jupyterhub_db_exists=$(docker exec -i infra-postgres psql -U "$POSTGRES_ADMIN_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$JUPYTERHUB_DB_NAME'" 2>/dev/null || echo "0")
+    assignment_db_exists=$(docker exec -i infra-postgres psql -U "$POSTGRES_ADMIN_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${ASSIGNMENT_DB_NAME:-assignment_service}'" 2>/dev/null || echo "0")
     
-    if [ "$moodle_db_exists" = "1" ] && [ "$jupyterhub_db_exists" = "1" ]; then
-        echo "OK (Cả hai DB tồn tại)"
+    if [ "$moodle_db_exists" = "1" ] && [ "$jupyterhub_db_exists" = "1" ] && [ "$assignment_db_exists" = "1" ]; then
+        echo "OK (Cả ba DB tồn tại)"
     else
-        echo "LỖI (Thiếu database! moodle: $moodle_db_exists, jupyterhub: $jupyterhub_db_exists)"
+        echo "LỖI (Thiếu database! moodle: $moodle_db_exists, jupyterhub: $jupyterhub_db_exists, assignment_service: $assignment_db_exists)"
         status=1
     fi
 else
@@ -313,9 +314,9 @@ if docker image inspect moodle-jupyter-singleuser:latest >/dev/null 2>&1; then
     
     # 6.2. Kiểm tra quyền ghi của Giáo viên/Admin trên các volumes (exchange, courses, templates)
     teacher_write_check=$(docker run --rm \
-      -v "${PROJECT_NAME:-moodle-jupyter-platform}_nbgrader-exchange:/srv/nbgrader/exchange" \
-      -v "${PROJECT_NAME:-moodle-jupyter-platform}_nbgrader-courses:/srv/nbgrader/courses" \
-      -v "${PROJECT_NAME:-moodle-jupyter-platform}_nbgrader-templates:/srv/nbgrader/templates" \
+      -v "${DATA_ROOT}/nbgrader/exchange:/srv/nbgrader/exchange" \
+      -v "${DATA_ROOT}/nbgrader/courses:/srv/nbgrader/courses" \
+      -v "${DATA_ROOT}/nbgrader/templates:/srv/nbgrader/templates" \
       moodle-jupyter-singleuser:latest \
       bash -c "
         touch /srv/nbgrader/exchange/.write-test && rm /srv/nbgrader/exchange/.write-test && \
@@ -354,11 +355,11 @@ if docker image inspect moodle-jupyter-singleuser:latest >/dev/null 2>&1; then
     fi
     
     # 6.5. Kiểm tra cấu hình và file mẫu demo mới
-    demo_config_check=$(docker run --rm -v "${PROJECT_NAME:-moodle-jupyter-platform}_nbgrader-courses:/srv/nbgrader/courses" moodle-jupyter-singleuser:latest ls -la /srv/nbgrader/courses/moodle_course_demo/nbgrader_config.py >/dev/null 2>&1 && echo "OK" || echo "MISSING")
-    demo_template_check=$(docker run --rm -v "${PROJECT_NAME:-moodle-jupyter-platform}_nbgrader-templates:/srv/nbgrader/templates" moodle-jupyter-singleuser:latest ls -la /srv/nbgrader/templates/moodle_teacher_demo/python_basic/lab01_function/lab01_function.ipynb >/dev/null 2>&1 && echo "OK" || echo "MISSING")
+    demo_config_check=$(ls -la "${DATA_ROOT}/nbgrader/courses/course_demo/nbgrader_config.py" >/dev/null 2>&1 && echo "OK" || echo "MISSING")
+    demo_template_check=$(ls -la "${DATA_ROOT}/nbgrader/templates/moodle_teacher_demo/python_basic/lab01_function/lab01_function.ipynb" >/dev/null 2>&1 && echo "OK" || echo "MISSING")
     
     if [ "$demo_config_check" = "OK" ] && [ "$demo_template_check" = "OK" ]; then
-        echo "   - Kiểm tra cấu hình lớp học mẫu (moodle_course_demo và template): OK"
+        echo "   - Kiểm tra cấu hình lớp học mẫu (course_demo và template): OK"
     else
         echo "   - Kiểm tra cấu hình lớp học mẫu: LỖI"
         echo "     + File config lớp học: $demo_config_check"
@@ -458,11 +459,12 @@ if [ -n "$assignment_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$
         status=1
     fi
     
-    # Kiểm tra database SQLite của service
-    if docker compose exec -T jupyter-assignment-service sh -c "test -f /app/assignment_service.db" ; then
-        echo "   - Database SQLite (/app/assignment_service.db): OK"
+    # Kiểm tra database PostgreSQL của service
+    pg_conn_check=$(docker compose exec -T jupyter-assignment-service python3 -c "from main import engine; conn=engine.connect(); print('OK')" 2>/dev/null || echo "ERROR")
+    if [ "$pg_conn_check" = "OK" ] ; then
+        echo "   - Kết nối Database PostgreSQL (assignment_service): OK"
     else
-        echo "   - Database SQLite (/app/assignment_service.db): LỖI (Thiếu file database)"
+        echo "   - Kết nối Database PostgreSQL (assignment_service): LỖI (Không kết nối được: $pg_conn_check)"
         status=1
     fi
     

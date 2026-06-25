@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Teacher Panel - Moodle Jupyter Assignment</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 20px;
+            color: #1e293b;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        h1, h2 {
+            margin-top: 0;
+            color: #0f172a;
+            font-weight: 700;
+        }
+        .btn {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-right: 10px;
+            transition: background 0.2s, transform 0.1s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+        }
+        .btn:hover {
+            background: #1d4ed8;
+        }
+        .btn:active {
+            transform: scale(0.98);
+        }
+        .btn:disabled {
+            background: #cbd5e1;
+            cursor: not-allowed;
+        }
+        .btn-secondary {
+            background: #64748b;
+        }
+        .btn-secondary:hover {
+            background: #475569;
+        }
+        .btn-success {
+            background: #10b981;
+        }
+        .btn-success:hover {
+            background: #059669;
+        }
+        .btn-danger {
+            background: #ef4444;
+        }
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 4px;
+            margin-right: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        th {
+            background-color: #f8fafc;
+            font-weight: 600;
+            color: #475569;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        tr:hover {
+            background-color: #f8fafc;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        .status-graded { background: #dcfce7; color: #166534; }
+        .status-submitted { background: #dbeafe; color: #1e40af; }
+        .status-notstarted { background: #f1f5f9; color: #475569; }
+        .alert {
+            background: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            padding: 14px 18px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #1e3a8a;
+            line-height: 1.5;
+        }
+        
+        /* Toast Notification Styling */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 100000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            background: #1e293b;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            font-size: 14px;
+            font-weight: 500;
+            min-width: 250px;
+            max-width: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transform: translateY(-20px);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            border-left: 4px solid #3b82f6;
+        }
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        .toast-success {
+            border-left-color: #10b981;
+        }
+        .toast-error {
+            border-left-color: #ef4444;
+        }
+        .toast-info {
+            border-left-color: #3b82f6;
+        }
+        
+        /* Modal Styling */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background: white;
+            width: 96vw;
+            height: 94vh;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .modal-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8fafc;
+        }
+        .modal-title {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .close-btn {
+            background: transparent;
+            border: none;
+            font-size: 28px;
+            cursor: pointer;
+            color: #64748b;
+            transition: color 0.2s;
+            line-height: 1;
+        }
+        .close-btn:hover {
+            color: #0f172a;
+        }
+        .modal-body {
+            flex: 1;
+            position: relative;
+            background: #f1f5f9;
+        }
+        .modal-body iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid #e2e8f0;
+            background: #f8fafc;
+        }
+        .grading-form {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            width: 100%;
+        }
+        .form-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .form-group label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #475569;
+            white-space: nowrap;
+        }
+        .form-control {
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .form-control:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+        }
+        .input-score {
+            width: 90px;
+        }
+        .input-comment {
+            flex-grow: 1;
+        }
+        
+        /* Styles for Multiple Files management */
+        .assignment-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            transition: all 0.2s;
+        }
+        .assignment-item:hover {
+            border-color: #cbd5e1;
+            background: #f1f5f9;
+        }
+        .assignment-link {
+            color: #2563eb;
+            font-weight: 600;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+        .assignment-link:hover {
+            text-decoration: underline;
+            color: #1d4ed8;
+        }
+        .delete-file-btn {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: 700;
+            padding: 0 4px;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+        .delete-file-btn:hover {
+            color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Bảng điều khiển Giáo viên - Khóa học: {{ course_title or moodle_course_id }}</h1>
+        <p>Đề bài đang cấu hình: <strong>{{ assignment_title or assignment_id }}</strong> | Tài khoản: <strong>{{ username }}</strong></p>
+        <div class="alert">
+            💡 <strong>Hướng dẫn chấm bài thủ công:</strong> Nhấn nút <strong>"Chấm bài"</strong> của sinh viên tương ứng để mở bài làm trong popup JupyterLab. Bạn có thể tương tác chạy thử và viết nhận xét. Nhập điểm và nhận xét của bạn vào thanh công cụ ở cuối popup và nhấn <strong>"Lưu điểm"</strong>.
+        </div>
+        <div>
+            <button class="btn" onclick="triggerAction('release')">1. Phát hành đề</button>
+            <button class="btn btn-secondary" onclick="triggerAction('collect')">2. Thu bài học sinh</button>
+            <button class="btn btn-secondary" onclick="triggerAction('autograde')">3. Chấm bài tự động</button>
+            <button class="btn btn-secondary" style="display:none;" onclick="triggerAction('release-feedback')">4. Phát hành Phản hồi</button>
+            <button class="btn" style="background:#10b981" onclick="loadSubmissions()">Tải lại Bảng điểm</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Cấu hình Thời gian & Nghiệp vụ</h2>
+        <form id="settings-form" onsubmit="saveAssignmentSettings(event)">
+            <div style="margin-bottom: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px;">
+                <div>
+                    <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">Loại bài làm:</label>
+                    <select id="setting-type" class="form-control" style="width: 100%; box-sizing: border-box;">
+                        <option value="ASSIGNMENT">Bài tập (Nộp nhiều lần, không giới hạn)</option>
+                        <option value="EXAM">Bài thi (Nộp 1 lần duy nhất, giới hạn thời gian)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">Thời gian bắt đầu:</label>
+                    <input type="datetime-local" id="setting-start-time" class="form-control" style="width: 100%; box-sizing: border-box;">
+                </div>
+                <div>
+                    <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">Thời gian kết thúc:</label>
+                    <input type="datetime-local" id="setting-end-time" class="form-control" style="width: 100%; box-sizing: border-box;">
+                </div>
+                <div>
+                    <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">Thời lượng làm bài (Phút):</label>
+                    <input type="number" id="setting-duration" class="form-control" placeholder="Không giới hạn" style="width: 100%; box-sizing: border-box;">
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px;">
+                    <input type="checkbox" id="setting-randomize-variants" style="width: 18px; height: 18px; cursor: pointer;">
+                    <label for="setting-randomize-variants" style="font-weight: 600; font-size: 14px; cursor: pointer;">Trộn đề ngẫu nhiên chia đều cho học sinh</label>
+                </div>
+            </div>
+            <button class="btn" type="submit" style="background:#2563eb;">Lưu cấu hình</button>
+        </form>
+    </div>
+
+    <div class="card" id="upload-card">
+        <h2>Quản lý đề bài (.ipynb)</h2>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: end;">
+            <div>
+                <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">Tải lên file có sẵn:</label>
+                <form id="upload-form" onsubmit="uploadAssignment(event)" style="display: flex; gap: 8px; align-items: center;">
+                    <input type="file" id="assignment-file" accept=".ipynb" required style="flex: 1;">
+                    <button class="btn" id="upload-btn" type="submit" style="background:#059669; white-space: nowrap;">Tải lên</button>
+                </form>
+            </div>
+            <div>
+                <label style="font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px;">Hoặc tạo mới từ đầu:</label>
+                <button class="btn" type="button" onclick="openCreateModal()" style="background:#0284c7; width: 100%;">📝 Tạo đề mới & Soạn ngay</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Editor Overlay: hiển thị JupyterLab notebook trực tiếp trong iframe -->
+    <div id="editor-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; background: #f1f5f9;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: #1e293b; color: white;">
+            <span style="font-weight: 600; font-size: 15px;">📝 Đang soạn đề bài — <span id="editor-file-label"></span></span>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn" onclick="saveAndCloseEditor()" style="background:#059669;">💾 Lưu</button>
+            </div>
+        </div>
+        <iframe id="editor-iframe" style="width: 100%; height: calc(100% - 48px); border: none;"></iframe>
+    </div>
+
+    <div class="card">
+        <h2>Danh sách file hiện tại trong Source</h2>
+        <div id="assignment-list">
+            Đang tải...
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Danh sách sinh viên nộp bài</h2>
+        <div id="autograde-job-status" style="margin-bottom: 12px; padding: 10px 14px; border-radius: 6px; font-size: 14px; display: none;"></div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Sinh viên</th>
+                    <th>Thời gian nộp</th>
+                    <th>Lần nộp</th>
+                    <th>Trạng thái</th>
+                    <th>Điểm số</th>
+                    <th>Nhận xét</th>
+                    <th>Hành động</th>
+                </tr>
+            </thead>
+            <tbody id="student-table-body">
+                <tr>
+                    <td colspan="7">Đang tải danh sách...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Popup Modal Chấm Điểm -->
+    <div id="grading-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" style="display: flex; align-items: center; gap: 16px; margin: 0; font-size: 18px; font-weight: 600;">
+                    Chấm bài sinh viên: <span id="grading-student-name" style="color: #2563eb;"></span>
+                    <span id="file-selector-container" style="display: none; align-items: center; gap: 8px; font-size: 14px; font-weight: normal; color: #334155; margin-left: 20px;">
+                        📄 Chọn file chấm: 
+                        <select id="grading-file-select" style="width: auto; padding: 4px 8px; font-size: 13px; border: 1px solid #cbd5e1; border-radius: 4px; outline: none; background: white;" onchange="switchGradingFile()"></select>
+                    </span>
+                </h3>
+                <button class="close-btn" onclick="closeGrading()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <iframe id="grading-iframe"></iframe>
+            </div>
+            <div class="modal-footer">
+                <div class="grading-form">
+                    <div class="form-group">
+                        <label for="grade-input">Điểm số (0-10):</label>
+                        <input type="number" id="grade-input" class="form-control input-score" min="0" max="10" step="0.1" placeholder="Điểm">
+                    </div>
+                    <div class="form-group" style="flex-grow: 1;">
+                        <label for="comment-input">Nhận xét:</label>
+                        <input type="text" id="comment-input" class="form-control input-comment" placeholder="Nhập nhận xét của giáo viên...">
+                    </div>
+                    <button class="btn btn-success" id="btn-save-grade" onclick="saveGrade()">Lưu điểm</button>
+                    <button class="btn btn-danger" onclick="resetSubmission()">Khôi phục bài gốc</button>
+                    <button class="btn btn-secondary" onclick="closeGrading()">Đóng</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Popup Modal Tạo Đề Mới -->
+    <div id="create-modal" class="modal">
+        <div class="modal-content" style="max-width: 500px; height: auto; padding: 24px; box-sizing: border-box; gap: 16px; margin: auto;">
+            <div class="modal-header" style="padding: 0 0 12px 0; background: transparent; border-bottom: 1px solid #e2e8f0;">
+                <h3 class="modal-title">📝 Tạo đề thi mới</h3>
+                <button class="close-btn" onclick="closeCreateModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="background: transparent; padding: 12px 0; display: flex; flex-direction: column; gap: 8px;">
+                <label for="new-filename-input" style="font-weight: 600; color: #334155;">Tên file đề thi mới:</label>
+                <input type="text" id="new-filename-input" class="form-control" style="width: 100%; box-sizing: border-box;" placeholder="Ví dụ: de_1.ipynb" value="de_1.ipynb">
+                <span id="create-modal-error" style="color: #ef4444; font-size: 13px; font-weight: 500; display: none;">⚠️ Tên đề thi đã tồn tại. Vui lòng chọn tên khác!</span>
+            </div>
+            <div class="modal-footer" style="padding: 12px 0 0 0; background: transparent; border-top: none; display: flex; justify-content: flex-end; gap: 12px;">
+                <button class="btn" onclick="closeCreateModal()" style="background: #e2e8f0; color: #475569;">Hủy</button>
+                <button class="btn" id="btn-submit-create" onclick="submitCreateModal()" style="background: #0284c7; color: white;">Tạo & Soạn ngay</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Toast container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+        let currentGradingSessionId = null;
+        let currentStudentId = null;
+
+        // Hàm hiển thị Toast Notification
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast toast-' + type;
+            toast.innerHTML = '<span>' + message + '</span><span style="cursor:pointer;margin-left:12px;font-weight:bold;" onclick="this.parentElement.remove()">&times;</span>';
+            container.appendChild(toast);
+            
+            // Trigger animation
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 50);
+            
+            // Auto remove after 3s
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }, 3000);
+        }
+
+        async function triggerAction(action) {
+            const res = await fetch(`/services/assignment-service/api/teacher/${action}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    moodle_course_id: "{{ moodle_course_id }}",
+                    assignment_id: "{{ assignment_id }}"
+                })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                showToast(data.message || "Thao tác thành công!");
+            } else {
+                alert(data.detail || "Có lỗi xảy ra.");
+            }
+            loadSubmissions();
+            loadAssignments();
+        }
+
+        let hasExistingAssignment = false;
+        let loadedFiles = [];
+
+        async function loadAssignments() {
+            try {
+                const res = await fetch(`/services/assignment-service/api/teacher/assignment-files?moodle_course_id={{ moodle_course_id }}&assignment_id={{ assignment_id }}`);
+                const data = await res.json();
+                loadedFiles = data.files || [];
+                const list = document.getElementById('assignment-list');
+                list.innerHTML = '';
+                if (!data.files || data.files.length === 0) {
+                    list.innerHTML = '<div style="color: #64748b; font-style: italic; padding: 12px 0;">Chưa có file nào trong thư mục đề bài. Hãy tải lên hoặc tạo mới.</div>';
+                    hasExistingAssignment = false;
+                    return;
+                }
+                hasExistingAssignment = true;
+                
+                data.files.forEach(file => {
+                    const sizeKB = (file.size / 1024).toFixed(1);
+                    const fileIcon = file.is_notebook ? '📓' : '📄';
+                    
+                    let linkHtml = '';
+                    if (file.is_notebook) {
+                        linkHtml = `<span class="assignment-link" onclick="openEditor('${file.name}')">${fileIcon} ${file.name} <span style="font-weight: normal; font-size: 12px; color: #64748b;">(${sizeKB} KB)</span></span>`;
+                    } else {
+                        linkHtml = `<span style="display: flex; align-items: center; gap: 8px; color: #475569;">${fileIcon} ${file.name} <span style="font-size: 12px; color: #64748b;">(${sizeKB} KB)</span></span>`;
+                    }
+                    
+                    const itemHtml = `
+                        <div class="assignment-item">
+                            ${linkHtml}
+                            <button class="delete-file-btn" onclick="deleteAssignmentFile('${file.name}')" title="Xóa file">&times;</button>
+                        </div>
+                    `;
+                    list.innerHTML += itemHtml;
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function uploadAssignment(event) {
+            event.preventDefault();
+            const fileInput = document.getElementById('assignment-file');
+            if (fileInput.files.length === 0) return;
+            
+            const file = fileInput.files[0];
+            if (loadedFiles.some(f => f.name.toLowerCase() === file.name.toLowerCase())) {
+                alert(`File "${file.name}" đã tồn tại. Vui lòng chọn tên khác hoặc xóa file cũ trước.`);
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const uploadBtn = document.getElementById('upload-btn');
+            uploadBtn.disabled = true;
+            uploadBtn.innerText = 'Đang tải lên...';
+            
+            try {
+                const res = await fetch('/services/assignment-service/api/teacher/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    fileInput.value = '';
+                    showToast("Tải lên file thành công!");
+                    loadAssignments();
+                } else {
+                    alert(data.detail || 'Lỗi khi tải lên.');
+                }
+            } catch (e) {
+                alert('Upload failed: ' + e);
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.innerText = 'Tải lên';
+            }
+        }
+
+        function openCreateModal() {
+            const modal = document.getElementById('create-modal');
+            const input = document.getElementById('new-filename-input');
+            const errorSpan = document.getElementById('create-modal-error');
+            const btnSubmit = document.getElementById('btn-submit-create');
+            
+            input.value = 'de_1.ipynb';
+            errorSpan.style.display = 'none';
+            btnSubmit.disabled = false;
+            
+            modal.style.display = 'flex';
+            input.focus();
+        }
+
+        function closeCreateModal() {
+            document.getElementById('create-modal').style.display = 'none';
+        }
+
+        async function submitCreateModal() {
+            let filename = document.getElementById('new-filename-input').value.trim();
+            if (!filename) {
+                alert("Tên file không được trống.");
+                return;
+            }
+            if (!filename.endsWith(".ipynb")) {
+                filename += ".ipynb";
+            }
+            
+            if (loadedFiles.some(f => f.name.toLowerCase() === filename.toLowerCase())) {
+                alert(`Tên đề thi "${filename}" đã tồn tại. Vui lòng chọn tên khác.`);
+                return;
+            }
+            
+            closeCreateModal();
+            
+            try {
+                const res = await fetch('/services/assignment-service/api/teacher/create-assignment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        moodle_course_id: "{{ moodle_course_id }}",
+                        assignment_id: "{{ assignment_id }}",
+                        filename: filename
+                    })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast("Tạo đề mới thành công!");
+                    loadAssignments();
+                    openEditor(filename);
+                } else {
+                    alert(data.detail || 'Lỗi khi tạo đề.');
+                }
+            } catch (e) {
+                alert("Lỗi khi tạo đề: " + e);
+            }
+        }
+
+
+        async function deleteAssignmentFile(filename) {
+            if (!confirm(`Bạn có chắc chắn muốn xóa file "${filename}"?`)) {
+                return;
+            }
+            try {
+                const res = await fetch('/services/assignment-service/api/teacher/delete-file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        moodle_course_id: "{{ moodle_course_id }}",
+                        assignment_id: "{{ assignment_id }}",
+                        filename: filename
+                    })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || "Xóa file thành công.");
+                    loadAssignments();
+                } else {
+                    alert(data.detail || "Có lỗi xảy ra khi xóa file.");
+                }
+            } catch (e) {
+                alert("Lỗi kết nối: " + e);
+            }
+        }
+
+        function openEditor(filename = 'assignment.ipynb') {
+            const notebookUrl = `/user/{{ username }}/lab/tree/courses/{{ safe_course_id }}/source/{{ safe_activity_id }}/${filename}`;
+            document.getElementById('editor-file-label').innerText = `{{ safe_activity_id }}/${filename}`;
+            document.getElementById('editor-iframe').src = notebookUrl;
+            startBypassingBeforeUnload('editor-iframe');
+            document.getElementById('editor-overlay').style.display = 'block';
+        }
+
+        function closeEditor() {
+            document.getElementById('editor-overlay').style.display = 'none';
+            document.getElementById('editor-iframe').src = '';
+            loadAssignments();
+        }
+
+        function saveAndCloseEditor() {
+            const iframe = document.getElementById('editor-iframe');
+            if (iframe && iframe.contentDocument) {
+                try {
+                    // 1. Tìm nút Save bằng thuộc tính data-command của JupyterLab
+                    let saveBtn = iframe.contentDocument.querySelector('[data-command="docmanager:save"]');
+                    
+                    // 2. Fallback: tìm theo title
+                    if (!saveBtn) {
+                        saveBtn = iframe.contentDocument.querySelector('button[title*="Save"]');
+                    }
+                    
+                    // 3. Fallback: tìm theo class icon
+                    if (!saveBtn) {
+                        const icon = iframe.contentDocument.querySelector('.jp-SaveIcon');
+                        if (icon) {
+                            saveBtn = icon.closest('button') || icon;
+                        }
+                    }
+                    
+                    if (saveBtn) {
+                        saveBtn.click();
+                    } else {
+                        // Gửi tổ hợp phím Ctrl + S
+                        const event = new KeyboardEvent('keydown', {
+                            bubbles: true,
+                            cancelable: true,
+                            key: 's',
+                            keyCode: 83,
+                            ctrlKey: true
+                        });
+                        iframe.contentDocument.dispatchEvent(event);
+                        if (iframe.contentWindow.document.activeElement) {
+                            iframe.contentWindow.document.activeElement.dispatchEvent(event);
+                        }
+                    }
+                    showToast("Đã lưu đề thi!");
+                } catch (e) {
+                    console.warn("Không thể truy cập trực tiếp iframe DOM để lưu, đang đóng...", e);
+                }
+            }
+            
+            // Chờ 800ms để request lưu của JupyterLab hoàn tất, sau đó quay về bảng điều khiển
+            setTimeout(() => {
+                closeEditor();
+            }, 800);
+        }
+
+        async function loadAssignmentSettings() {
+            try {
+                const res = await fetch(`/services/assignment-service/api/teacher/assignment-settings?moodle_course_id={{ moodle_course_id }}&assignment_id={{ assignment_id }}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('setting-type').value = data.type;
+                    document.getElementById('setting-start-time').value = data.start_time || '';
+                    document.getElementById('setting-end-time').value = data.end_time || '';
+                    document.getElementById('setting-duration').value = data.duration_minutes || '';
+                    document.getElementById('setting-randomize-variants').checked = data.randomize_variants || false;
+                }
+            } catch (e) {
+                console.error("Lỗi khi load cấu hình bài làm:", e);
+            }
+        }
+
+        async function saveAssignmentSettings(event) {
+            event.preventDefault();
+            const typeVal = document.getElementById('setting-type').value;
+            const startTimeVal = document.getElementById('setting-start-time').value;
+            const endTimeVal = document.getElementById('setting-end-time').value;
+            const durationVal = document.getElementById('setting-duration').value;
+            const randomizeVal = document.getElementById('setting-randomize-variants').checked;
+            
+            try {
+                const res = await fetch('/services/assignment-service/api/teacher/update-assignment-settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        moodle_course_id: "{{ moodle_course_id }}",
+                        assignment_id: "{{ assignment_id }}",
+                        type: typeVal,
+                        start_time: startTimeVal,
+                        end_time: endTimeVal,
+                        duration_minutes: durationVal,
+                        randomize_variants: randomizeVal
+                    })
+                });
+                const data = res.ok ? await res.json() : null;
+                if (res.ok) {
+                    showToast(data.message || "Lưu cấu hình thành công!");
+                } else {
+                    const errorData = await res.json();
+                    alert(errorData.detail || "Lỗi khi lưu cấu hình.");
+                }
+            } catch (e) {
+                alert("Lỗi kết nối: " + e);
+            }
+        }
+
+        async function loadSubmissions() {
+            const res = await fetch(`/services/assignment-service/api/teacher/submissions?moodle_course_id={{ moodle_course_id }}&assignment_id={{ assignment_id }}`);
+            const data = await res.json();
+            
+            // Cập nhật trạng thái Job chấm điểm tự động
+            const jobStatusDiv = document.getElementById('autograde-job-status');
+            if (data.job_status === 'RUNNING') {
+                jobStatusDiv.style.display = 'block';
+                jobStatusDiv.style.background = '#eff6ff';
+                jobStatusDiv.style.border = '1px solid #bfdbfe';
+                jobStatusDiv.style.color = '#1e3a8a';
+                jobStatusDiv.innerHTML = `🔄 <strong>Hệ thống đang chạy chấm điểm tự động trong nền...</strong> Bảng điểm sẽ tự động làm mới sau vài giây.`;
+                // Tự động reload sau 3 giây
+                setTimeout(loadSubmissions, 3000);
+            } else if (data.job_status === 'COMPLETED') {
+                jobStatusDiv.style.display = 'block';
+                jobStatusDiv.style.background = '#ecfdf5';
+                jobStatusDiv.style.border = '1px solid #a7f3d0';
+                jobStatusDiv.style.color = '#065f46';
+                jobStatusDiv.innerHTML = `✅ <strong>Chấm bài tự động thành công!</strong> Tất cả các bài nộp đã được chấm điểm.`;
+            } else if (data.job_status === 'FAILED') {
+                jobStatusDiv.style.display = 'block';
+                jobStatusDiv.style.background = '#fef2f2';
+                jobStatusDiv.style.border = '1px solid #fca5a5';
+                jobStatusDiv.style.color = '#991b1b';
+                jobStatusDiv.innerHTML = `❌ <strong>Chấm bài tự động thất bại:</strong> ${data.job_error || 'Lỗi không xác định'}`;
+            } else {
+                jobStatusDiv.style.display = 'none';
+            }
+
+            const tbody = document.getElementById('student-table-body');
+            tbody.innerHTML = '';
+            if(!data.students || data.students.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7">Chưa có sinh viên nào nộp bài.</td></tr>';
+                return;
+            }
+
+            data.students.forEach(st => {
+                let badgeClass = 'status-notstarted';
+                let gradingText = 'Chưa chấm';
+                if (st.grading_status === 'GRADED') {
+                    badgeClass = 'status-graded';
+                    gradingText = 'Đã chấm';
+                } else if (st.status === 'SUBMITTED') {
+                    badgeClass = 'status-submitted';
+                    gradingText = 'Đã nộp';
+                }
+
+                const scoreVal = st.score !== null ? st.score : '-';
+                const commentVal = st.comment ? st.comment : '-';
+                const attemptVal = st.attempt_no ? `Lần ${st.attempt_no}` : '-';
+                
+                let actionsHtml = '-';
+                if (st.status === 'SUBMITTED' || st.grading_status === 'GRADED') {
+                    actionsHtml = `
+                        <button class="btn btn-sm" onclick="openGrading('${st.username}')" data-student="${st.username}" data-score="${st.score !== null ? st.score : ''}" data-comment="${st.comment ? st.comment : ''}">Chấm bài</button>
+                        <a href="/services/assignment-service/api/teacher/download-submission?student_id=${st.username}" class="btn btn-secondary btn-sm" download>Tải file</a>
+                    `;
+                }
+
+                tbody.innerHTML += `
+                    <tr>
+                        <td><strong>${st.username}</strong></td>
+                        <td>${st.submitted_at}</td>
+                        <td>${attemptVal}</td>
+                        <td><span class="status-badge ${badgeClass}">${gradingText}</span></td>
+                        <td><strong style="color: #2563eb;">${scoreVal}</strong></td>
+                        <td><span style="font-size: 13px; color: #64748b;">${commentVal}</span></td>
+                        <td>${actionsHtml}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function openGrading(studentId, reset = false) {
+            if (reset) {
+                if (!confirm("Bạn có chắc chắn muốn khôi phục bài nháp chấm điểm về file bài nộp gốc không? Mọi sửa đổi nháp của bạn sẽ bị mất.")) {
+                    return;
+                }
+            }
+            currentStudentId = studentId;
+            document.getElementById('grading-student-name').innerText = studentId;
+            
+            const rowBtn = document.querySelector(`button[data-student="${studentId}"]`);
+            if (rowBtn && !reset) {
+                document.getElementById('grade-input').value = rowBtn.getAttribute('data-score') || '';
+                document.getElementById('comment-input').value = rowBtn.getAttribute('data-comment') || '';
+            } else if (reset) {
+                document.getElementById('grade-input').value = '';
+                document.getElementById('comment-input').value = '';
+            }
+
+            const modal = document.getElementById('grading-modal');
+            const iframe = document.getElementById('grading-iframe');
+            iframe.src = '';
+            modal.style.display = 'flex';
+
+            try {
+                const res = await fetch('/services/assignment-service/api/teacher/open-submission', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ student_id: studentId, reset: reset })
+                });
+                const data = await res.json();
+                if (data.status === 'WAITING') {
+                    alert(data.message);
+                    modal.style.display = 'none';
+                } else if (data.status === 'READY') {
+                    currentGradingSessionId = data.grading_session_id;
+                    iframe.src = data.notebook_url;
+                    startBypassingBeforeUnload('grading-iframe');
+                    
+                    const selectorContainer = document.getElementById('file-selector-container');
+                    const fileSelect = document.getElementById('grading-file-select');
+                    if (data.notebooks && data.notebooks.length > 1) {
+                        selectorContainer.style.display = 'flex';
+                        fileSelect.innerHTML = '';
+                        data.notebooks.forEach(nb => {
+                            const opt = document.createElement('option');
+                            opt.value = nb;
+                            opt.innerText = nb;
+                            fileSelect.appendChild(opt);
+                        });
+                        fileSelect.value = data.notebooks[0];
+                    } else {
+                        selectorContainer.style.display = 'none';
+                    }
+                } else {
+                    alert(data.detail || "Không mở được bài chấm.");
+                    modal.style.display = 'none';
+                }
+            } catch (e) {
+                alert("Lỗi kết nối tới service: " + e);
+                modal.style.display = 'none';
+            }
+        }
+
+        function switchGradingFile() {
+            const fileSelect = document.getElementById('grading-file-select');
+            const selectedFile = fileSelect.value;
+            const iframe = document.getElementById('grading-iframe');
+            const notebookUrl = `/user/{{ username }}/lab/tree/grading/{{ safe_activity_id }}/student_${currentStudentId}/${selectedFile}`;
+            iframe.src = notebookUrl;
+            startBypassingBeforeUnload('grading-iframe');
+        }
+
+        function closeGrading() {
+            document.getElementById('grading-modal').style.display = 'none';
+            document.getElementById('grading-iframe').src = '';
+            currentGradingSessionId = null;
+            currentStudentId = null;
+            loadSubmissions();
+        }
+
+        async function saveGrade() {
+            if (!currentGradingSessionId) {
+                alert("Phiên chấm điểm không tồn tại. Vui lòng mở lại bài chấm.");
+                return;
+            }
+            const scoreVal = document.getElementById('grade-input').value;
+            const commentVal = document.getElementById('comment-input').value;
+            if (scoreVal === "") {
+                alert("Vui lòng nhập điểm.");
+                return;
+            }
+
+            let reasonVal = "";
+            const rowBtn = document.querySelector(`button[data-student="${currentStudentId}"]`);
+            const oldScore = rowBtn ? rowBtn.getAttribute('data-score') : '';
+            if (oldScore !== "" && oldScore !== "null") {
+                reasonVal = prompt("Bài thi này đã được chấm trước đó. Bạn phải cung cấp lý do thay đổi điểm số:");
+                if (reasonVal === null) return; // Cancelled
+                if (reasonVal.trim() === "") {
+                    alert("Bạn phải nhập lý do thay đổi điểm.");
+                    return;
+                }
+            }
+
+            const btn = document.getElementById('btn-save-grade');
+            btn.disabled = true;
+            btn.innerText = 'Đang lưu...';
+
+            try {
+                const res = await fetch('/services/assignment-service/api/teacher/save-grade', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        grading_session_id: currentGradingSessionId,
+                        score: scoreVal,
+                        comment: commentVal,
+                        reason: reasonVal
+                    })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || "Lưu điểm thành công!");
+                    closeGrading();
+                } else {
+                    alert(data.detail || "Lỗi khi lưu điểm.");
+                }
+            } catch (e) {
+                alert("Lỗi khi lưu điểm: " + e);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Lưu điểm';
+            }
+        }
+
+        async function resetSubmission() {
+            if (!currentStudentId) return;
+            await openGrading(currentStudentId, true);
+        }
+
+        // Hàm định kỳ ghi đè nhằm loại bỏ cảnh báo "Leave site?" khi JupyterLab load
+        function startBypassingBeforeUnload(iframeId) {
+            const iframe = document.getElementById(iframeId);
+            if (!iframe) return;
+            
+            let attempts = 0;
+            const interval = setInterval(() => {
+                try {
+                    const win = iframe.contentWindow;
+                    if (win) {
+                        // Override addEventListener
+                        if (!win.__beforeunloadPatched) {
+                            const originalAdd = win.addEventListener;
+                            win.addEventListener = function(type, listener, options) {
+                                if (type === 'beforeunload') {
+                                    console.log("Blocked beforeunload registration in " + iframeId);
+                                    return;
+                                }
+                                return originalAdd.apply(this, arguments);
+                            };
+                            win.__beforeunloadPatched = true;
+                        }
+                        // Ghi đè liên tục onbeforeunload
+                        if (win.onbeforeunload !== null) {
+                            win.onbeforeunload = null;
+                        }
+                    }
+                } catch (e) {
+                    // Bỏ qua lỗi cross-origin tạm thời khi trang đang chuyển hướng
+                }
+                attempts++;
+                if (attempts > 300) { // Chạy liên tục trong 15 giây đầu lúc load
+                    clearInterval(interval);
+                }
+            }, 50);
+        }
+
+        // Load initial
+        loadAssignments();
+        loadSubmissions();
+        loadAssignmentSettings();
+        
+        // Bắt sự kiện gõ phím để kiểm tra trùng tên file đề thi real-time
+        document.getElementById('new-filename-input').addEventListener('input', function() {
+            let filename = this.value.trim();
+            if (filename && !filename.endsWith(".ipynb")) {
+                filename += ".ipynb";
+            }
+            const errorSpan = document.getElementById('create-modal-error');
+            const btnSubmit = document.getElementById('btn-submit-create');
+            if (loadedFiles.some(f => f.name.toLowerCase() === filename.toLowerCase())) {
+                errorSpan.style.display = 'block';
+                btnSubmit.disabled = true;
+                btnSubmit.style.opacity = '0.5';
+                btnSubmit.style.cursor = 'not-allowed';
+            } else {
+                errorSpan.style.display = 'none';
+                btnSubmit.disabled = false;
+                btnSubmit.style.opacity = '1';
+                btnSubmit.style.cursor = 'pointer';
+            }
+        });
+        
+        setInterval(loadSubmissions, 12000);
+    </script>
+</body>
+</html>

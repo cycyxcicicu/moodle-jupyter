@@ -21,9 +21,45 @@ services:
     ports:
       - "${MOODLE_HOST_PORT:-18080}:80"
     volumes:
-      - ${DATA_ROOT}/moodledata:/var/moodledata
+      - moodle_data:/var/moodledata
     networks:
       - infra-data-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  moodle-cron:
+    build:
+      context: ./moodle
+      dockerfile: Dockerfile
+    container_name: ${PROJECT_NAME:-moodle-jupyter-platform}_moodle_cron
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      MOODLE_WWWROOT: ${MOODLE_WWWROOT:-http://localhost:18080}
+      POSTGRES_HOST: ${POSTGRES_HOST:-infra-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${MOODLE_DB_NAME:-moodle}
+      POSTGRES_USER: ${MOODLE_DB_USER:-moodle_user}
+      POSTGRES_PASSWORD: ${MOODLE_DB_PASSWORD:-moodle_password}
+    entrypoint: ["/bin/bash", "-c", "while true; do runuser -u www-data -- php -d max_input_vars=5000 /var/www/html/admin/cli/cron.php; sleep 60; done"]
+    volumes:
+      - moodle_data:/var/moodledata
+    networks:
+      - infra-data-net
+    depends_on:
+      moodle:
+        condition: service_started
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   jupyterhub:
     build:
@@ -41,6 +77,10 @@ services:
       JUPYTERHUB_URL: ${JUPYTERHUB_URL:-http://localhost:18000}
       JUPYTERHUB_DB_URL: ${JUPYTERHUB_DB_URL:-postgresql://jupyterhub_user:jupyterhub_password@infra-postgres:5432/jupyterhub}
       LTI_USERNAME_KEY: ${LTI_USERNAME_KEY:-email}
+      DATA_ROOT: ${DATA_ROOT}
+      JUPYTERHUB_API_TOKEN: ${JUPYTERHUB_API_TOKEN}
+      JUPYTERHUB_USER_MEM_LIMIT: ${JUPYTERHUB_USER_MEM_LIMIT:-1G}
+      JUPYTERHUB_USER_CPU_LIMIT: ${JUPYTERHUB_USER_CPU_LIMIT:-1.0}
     depends_on:
       moodle:
         condition: service_started
@@ -51,24 +91,39 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - infra-data-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   jupyter-assignment-service:
     build:
       context: ./jupyter-assignment-service
       dockerfile: Dockerfile
     container_name: ${PROJECT_NAME:-moodle-jupyter-platform}_jupyter-assignment-service
+    env_file:
+      - path: .env
+        required: true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DATA_ROOT}/nbgrader/courses:/srv/nbgrader/courses
       - ${DATA_ROOT}/nbgrader/templates:/srv/nbgrader/templates
       - ${DATA_ROOT}/nbgrader/exchange:/srv/nbgrader/exchange
+      - ${DATA_ROOT}/jupyter/users:/srv/jupyter/users
     environment:
       - JUPYTERHUB_API_URL=http://jupyterhub:8000/hub/api
-      - JUPYTERHUB_API_TOKEN=super-secret-token
+      - JUPYTERHUB_API_TOKEN=${JUPYTERHUB_API_TOKEN}
+      - ASSIGNMENT_DATABASE_URL=${ASSIGNMENT_DATABASE_URL}
     networks:
       - infra-data-net
     depends_on:
       - jupyterhub
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   jupyter-singleuser:
     build:
@@ -83,3 +138,5 @@ networks:
     name: infra-data-net
     external: true
 
+volumes:
+  moodle_data:

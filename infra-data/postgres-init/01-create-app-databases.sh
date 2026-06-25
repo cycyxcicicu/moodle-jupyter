@@ -35,15 +35,6 @@ GRANT ALL PRIVILEGES ON DATABASE "${database_name}" TO "${owner_name}";
 SQL
 }
 
-create_role "$MOODLE_DB_USER" "$MOODLE_DB_PASSWORD"
-create_database "$MOODLE_DB_NAME" "$MOODLE_DB_USER"
-
-create_role "$JUPYTERHUB_DB_USER" "$JUPYTERHUB_DB_PASSWORD"
-create_database "$JUPYTERHUB_DB_NAME" "$JUPYTERHUB_DB_USER"
-
-create_role "$GITLAB_JUPYTER_DB_USER" "$GITLAB_JUPYTER_DB_PASSWORD"
-create_database "$GITLAB_JUPYTER_DB_NAME" "$GITLAB_JUPYTER_DB_USER"
-
 create_role "$QA_DB_USER" "$QA_DB_PASSWORD"
 create_database "$QA_DB_NAME" "$QA_DB_USER"
 
