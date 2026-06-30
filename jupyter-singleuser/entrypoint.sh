@@ -20,5 +20,11 @@ cat <<EOF > /home/jovyan/.jupyter/lab/user-settings/@jupyterlab/docmanager-exten
 }
 EOF
 
-# 4. Chạy lệnh tiếp theo được truyền từ DockerSpawner (ví dụ: jupyterhub-singleuser)
+# 4. Tự động clone/fetch bài làm của sinh viên từ GitLab
+if [ -f /usr/local/bin/gitlab-auto-clone.py ]; then
+    python3 /usr/local/bin/gitlab-auto-clone.py || echo "[Auto-Clone] Cảnh báo: Có lỗi xảy ra trong tiến trình clone nhưng vẫn tiếp tục mở JupyterLab."
+fi
+
+# 5. Chạy lệnh tiếp theo được truyền từ DockerSpawner (ví dụ: jupyterhub-singleuser)
 exec "$@"
+

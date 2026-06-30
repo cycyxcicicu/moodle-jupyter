@@ -150,6 +150,21 @@ else
     esac
 fi
 
+# 7. Check Keycloak OIDC Integration
+echo "Checking Keycloak OIDC Integration..."
+if [ -n "${KEYCLOAK_ISSUER:-}" ] && [ -n "${GITLAB_OIDC_CLIENT_ID:-}" ]; then
+    success "GitLab OIDC environment variables are configured."
+    
+    # Test network connectivity from inside the GitLab container to Keycloak
+    if docker exec -i gitlab-ce curl -s -f -o /dev/null "${KEYCLOAK_ISSUER}/.well-known/openid-configuration" >/dev/null 2>&1; then
+        success "GitLab container can resolve and connect to Keycloak at ${KEYCLOAK_ISSUER}"
+    else
+        error "GitLab container CANNOT connect to Keycloak at ${KEYCLOAK_ISSUER}! Ensure extra_hosts is configured and Keycloak is running."
+    fi
+else
+    error "GitLab OIDC environment variables are missing! Check .env file."
+fi
+
 echo "========================================================================="
 echo "Doctor checks completed."
 echo "========================================================================="

@@ -20,6 +20,8 @@ services:
       MOODLE_ADMIN_EMAIL: ${MOODLE_ADMIN_EMAIL:-admin@example.com}
     ports:
       - "${MOODLE_HOST_PORT:-18080}:80"
+    extra_hosts:
+      - "keycloak.school.local:host-gateway"
     volumes:
       - moodle_data:/var/moodledata
     networks:
@@ -35,7 +37,6 @@ services:
       context: ./moodle
       dockerfile: Dockerfile
     container_name: ${PROJECT_NAME:-moodle-jupyter-platform}_moodle_cron
-    restart: unless-stopped
     env_file:
       - path: .env
         required: true
@@ -50,6 +51,8 @@ services:
     entrypoint: ["/bin/bash", "-c", "while true; do runuser -u www-data -- php -d max_input_vars=5000 /var/www/html/admin/cli/cron.php; sleep 60; done"]
     volumes:
       - moodle_data:/var/moodledata
+    extra_hosts:
+      - "keycloak.school.local:host-gateway"
     networks:
       - infra-data-net
     depends_on:
@@ -87,8 +90,8 @@ services:
     ports:
       - "${JUPYTERHUB_HOST_PORT:-18000}:8000"
     volumes:
-      - ${DATA_ROOT}/jupyter_users:/home
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./jupyterhub/jupyterhub_config.py:/etc/jupyterhub/jupyterhub_config.py
     networks:
       - infra-data-net
     logging:

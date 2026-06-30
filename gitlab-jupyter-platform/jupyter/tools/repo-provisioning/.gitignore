@@ -1,8 +1,0 @@
-.env
-.venv/
-venv/
-__pycache__/
-.tmp/
-*.csv
-!students.example.csv
-!configs/**/students.example.csv

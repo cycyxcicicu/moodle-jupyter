@@ -42,8 +42,19 @@ fi
 
 # Chờ PostgreSQL sẵn sàng kết nối trước khi khởi động ứng dụng
 echo "Đang chờ cơ sở dữ liệu PostgreSQL dùng chung (infra-postgres) khởi động..."
+
+# Đọc cấu hình superuser và db mặc định từ infra-data/.env để thực hiện kiểm tra và khởi tạo
+INFRA_POSTGRES_USER="postgres"
+INFRA_POSTGRES_DB="postgres"
+if [ -f "../infra-data/.env" ]; then
+    INFRA_POSTGRES_USER=$(grep -E '^POSTGRES_USER=' "../infra-data/.env" | cut -d= -f2 | xargs)
+    INFRA_POSTGRES_DB=$(grep -E '^POSTGRES_DB=' "../infra-data/.env" | cut -d= -f2 | xargs)
+fi
+INFRA_POSTGRES_USER=${INFRA_POSTGRES_USER:-postgres}
+INFRA_POSTGRES_DB=${INFRA_POSTGRES_DB:-postgres}
+
 timeout_count=0
-until $DOCKER_CMD exec -i infra-postgres pg_isready -U "${QA_DB_USER:-admin}" -d "${POSTGRES_DB:-qa_default_db}" >/dev/null 2>&1; do
+until $DOCKER_CMD exec -i infra-postgres pg_isready -U "${INFRA_POSTGRES_USER}" -d "${INFRA_POSTGRES_DB}" >/dev/null 2>&1; do
     echo -n "."
     sleep 1
     timeout_count=$((timeout_count + 1))
@@ -54,8 +65,40 @@ until $DOCKER_CMD exec -i infra-postgres pg_isready -U "${QA_DB_USER:-admin}" -d
 done
 echo " CSDL đã sẵn sàng!"
 
-# Đảm bảo các database đã được khởi tạo trên infra-postgres
-$DOCKER_CMD exec -i infra-postgres bash /docker-entrypoint-initdb.d/01-create-app-databases.sh >/dev/null 2>&1 || true
+# Đảm bảo các database và user cho QA Tools đã được khởi tạo trên infra-postgres
+echo "Đang khởi tạo database và tài khoản cho QA Tools..."
+$DOCKER_CMD exec -i infra-postgres psql -U "${INFRA_POSTGRES_USER}" -d "${INFRA_POSTGRES_DB}" <<SQL >/dev/null 2>&1 || true
+-- Tạo role/user nếu chưa có
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${QA_DB_USER}') THEN
+    CREATE ROLE "${QA_DB_USER}" LOGIN PASSWORD '${QA_DB_PASSWORD}';
+  ELSE
+    ALTER ROLE "${QA_DB_USER}" WITH LOGIN PASSWORD '${QA_DB_PASSWORD}';
+  END IF;
+END
+\$\$;
+
+-- Tạo các database nếu chưa có
+SELECT 'CREATE DATABASE "${POSTGRES_DB}" OWNER "${QA_DB_USER}"'
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '${POSTGRES_DB}')\gexec
+
+SELECT 'CREATE DATABASE "${MANTIS_DB_NAME}" OWNER "${QA_DB_USER}"'
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '${MANTIS_DB_NAME}')\gexec
+
+SELECT 'CREATE DATABASE "${TESTLINK_DB_NAME}" OWNER "${QA_DB_USER}"'
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '${TESTLINK_DB_NAME}')\gexec
+
+-- Cấp quyền hạn truy cập database
+ALTER DATABASE "${POSTGRES_DB}" OWNER TO "${QA_DB_USER}";
+GRANT ALL PRIVILEGES ON DATABASE "${POSTGRES_DB}" TO "${QA_DB_USER}";
+
+ALTER DATABASE "${MANTIS_DB_NAME}" OWNER TO "${QA_DB_USER}";
+GRANT ALL PRIVILEGES ON DATABASE "${MANTIS_DB_NAME}" TO "${QA_DB_USER}";
+
+ALTER DATABASE "${TESTLINK_DB_NAME}" OWNER TO "${QA_DB_USER}";
+GRANT ALL PRIVILEGES ON DATABASE "${TESTLINK_DB_NAME}" TO "${QA_DB_USER}";
+SQL
 
 echo "========================================================="
 echo "Đang khởi dựng và chạy các container QA Tools..."

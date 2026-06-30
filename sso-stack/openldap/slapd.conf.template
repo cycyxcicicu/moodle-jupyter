@@ -1,0 +1,22 @@
+include         /etc/ldap/schema/core.schema
+include         /etc/ldap/schema/cosine.schema
+include         /etc/ldap/schema/nis.schema
+include         /etc/ldap/schema/inetorgperson.schema
+
+pidfile         /var/run/slapd/slapd.pid
+argsfile        /var/run/slapd/slapd.args
+loglevel        256
+
+modulepath      /usr/lib/ldap
+moduleload      back_mdb
+
+database        mdb
+maxsize         1073741824
+suffix          "${LDAP_BASE_DN}"
+rootdn          "${LDAP_ADMIN_DN}"
+rootpw          "${LDAP_ROOTPW_HASH}"
+directory       /var/lib/ldap
+
+index           objectClass eq
+index           uid eq,pres,sub
+index           cn,sn,mail eq,pres,sub

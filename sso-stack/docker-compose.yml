@@ -1,0 +1,100 @@
+services:
+  openldap:
+    build:
+      context: ./openldap
+    container_name: sso-openldap
+    env_file:
+      - .env
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      LDAP_BASE_DN: ${LDAP_BASE_DN:-dc=school,dc=local}
+      LDAP_DOMAIN: ${LDAP_DOMAIN:-school.local}
+      LDAP_ORGANIZATION: ${LDAP_ORGANIZATION:-School Local}
+      LDAP_ADMIN_PASSWORD: ${LDAP_ADMIN_PASSWORD}
+      SV001_PASSWORD: ${SV001_PASSWORD}
+      TEACHER01_PASSWORD: ${TEACHER01_PASSWORD}
+    ports:
+      - "${LDAP_HOST_PORT:-1389}:389"
+    volumes:
+      - openldap_data:/var/lib/ldap
+    healthcheck:
+      test: ["CMD-SHELL", "ldapsearch -x -H ldap://localhost:389/ -b \"\" -s base || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - infra-data-net
+
+  keycloak:
+    build:
+      context: ./keycloak
+      args:
+        KEYCLOAK_VERSION: ${KEYCLOAK_VERSION:-24.0.5}
+    container_name: sso-keycloak
+    env_file:
+      - .env
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://${POSTGRES_HOST:-infra-postgres}:5432/${KEYCLOAK_DB_NAME:-keycloak}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak_user}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+      # Các biến cấu hình để sinh file realm
+      MOODLE_WWWROOT: ${MOODLE_WWWROOT}
+      GITLAB_URL: ${GITLAB_URL}
+      JUPYTERHUB_URL: ${JUPYTERHUB_URL}
+      MOODLE_OIDC_CLIENT_SECRET: ${MOODLE_OIDC_CLIENT_SECRET}
+      GITLAB_OIDC_CLIENT_SECRET: ${GITLAB_OIDC_CLIENT_SECRET}
+      JUPYTERHUB_OIDC_CLIENT_SECRET: ${JUPYTERHUB_OIDC_CLIENT_SECRET}
+      KC_HOSTNAME_URL: ${KC_HOSTNAME_URL}
+      KC_HOSTNAME_STRICT: ${KC_HOSTNAME_STRICT}
+      KC_HOSTNAME_STRICT_HTTPS: ${KC_HOSTNAME_STRICT_HTTPS}
+      KC_HTTP_ENABLED: ${KC_HTTP_ENABLED}
+    ports:
+      - "${KEYCLOAK_HOST_PORT:-18090}:8080"
+    depends_on:
+      openldap:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health/live || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks:
+      - infra-data-net
+
+  ldap-admin:
+    build:
+      context: ./ldap-admin
+    container_name: sso-ldap-admin
+    env_file:
+      - .env
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      LDAP_HOST: openldap
+      LDAP_PORT: 389
+      LDAP_BASE_DN: ${LDAP_BASE_DN:-dc=school,dc=local}
+      LDAP_ADMIN_DN: cn=admin,${LDAP_BASE_DN:-dc=school,dc=local}
+    ports:
+      - "${LDAP_ADMIN_HOST_PORT:-18091}:80"
+    depends_on:
+      openldap:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - infra-data-net
+
+volumes:
+  openldap_data:
+
+networks:
+  infra-data-net:
+    name: infra-data-net
+    external: true

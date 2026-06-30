@@ -312,8 +312,7 @@ if docker image inspect moodle-jupyter-singleuser:latest >/dev/null 2>&1; then
         status=1
     fi
     
-    # 6.2. Kiểm tra quyền ghi của Giáo viên/Admin trên các volumes (exchange, courses, templates)
-    teacher_write_check=$(docker run --rm \
+    teacher_write_check_output=$(docker run --rm \
       -v "${DATA_ROOT}/nbgrader/exchange:/srv/nbgrader/exchange" \
       -v "${DATA_ROOT}/nbgrader/courses:/srv/nbgrader/courses" \
       -v "${DATA_ROOT}/nbgrader/templates:/srv/nbgrader/templates" \
@@ -323,12 +322,14 @@ if docker image inspect moodle-jupyter-singleuser:latest >/dev/null 2>&1; then
         touch /srv/nbgrader/courses/.write-test && rm /srv/nbgrader/courses/.write-test && \
         touch /srv/nbgrader/templates/.write-test && rm /srv/nbgrader/templates/.write-test && \
         echo 'OK'
-      " 2>/dev/null || echo "ERROR")
+      " 2>&1)
       
-    if [ "$teacher_write_check" = "OK" ]; then
+    teacher_write_check_last_line=$(echo "$teacher_write_check_output" | tail -n 1 | tr -d '\r')
+    if [ "$teacher_write_check_last_line" = "OK" ]; then
         echo "   - Quyền ghi của Giáo viên trên exchange, courses, templates: OK"
     else
         echo "   - Quyền ghi của Giáo viên trên exchange, courses, templates: LỖI (Giáo viên không có quyền ghi đầy đủ!)"
+        echo "     Chi tiết lỗi: $teacher_write_check_output"
         status=1
     fi
     
@@ -460,7 +461,7 @@ if [ -n "$assignment_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$
     fi
     
     # Kiểm tra database PostgreSQL của service
-    pg_conn_check=$(docker compose exec -T jupyter-assignment-service python3 -c "from main import engine; conn=engine.connect(); print('OK')" 2>/dev/null || echo "ERROR")
+    pg_conn_check=$(docker compose exec -T jupyter-assignment-service python3 -c "from database import engine; conn=engine.connect(); print('OK')" 2>/dev/null || echo "ERROR")
     if [ "$pg_conn_check" = "OK" ] ; then
         echo "   - Kết nối Database PostgreSQL (assignment_service): OK"
     else
@@ -478,6 +479,60 @@ if [ -n "$assignment_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$
     fi
 else
     echo "   - Container: LỖI (Không hoạt động)"
+    status=1
+fi
+
+# 11. Kiểm tra tích hợp Keycloak OAuth2 trong Moodle
+echo "11. Kiểm tra tích hợp Keycloak OAuth2 trong Moodle:"
+if [ -n "$moodle_status" ] && [ "$(docker inspect -f '{{.State.Running}}' "$moodle_status")" = "true" ]; then
+    # Kiểm tra biến môi trường
+    if [ -n "${KEYCLOAK_ISSUER:-}" ] && [ -n "${MOODLE_OIDC_CLIENT_ID:-}" ]; then
+        echo "   - Cấu hình OIDC trong .env: OK"
+        
+        # Kiểm tra xem container Moodle có gọi được Keycloak không
+        if docker compose exec -T moodle curl -s -f -o /dev/null "${KEYCLOAK_ISSUER}/.well-known/openid-configuration" >/dev/null 2>&1; then
+            echo "   - Kết nối Moodle Container -> Keycloak (Discovery Endpoint): OK"
+        else
+            echo "   - Kết nối Moodle Container -> Keycloak (Discovery Endpoint): LỖI (Kiểm tra extra_hosts hoặc Keycloak status)"
+            status=1
+        fi
+        
+        # Truy vấn Database Moodle kiểm tra cấu hình oauth2_issuer
+        DB_USER=${POSTGRES_ADMIN_USER:-postgres_user}
+        DB_PASS=${POSTGRES_ADMIN_PASSWORD:-postgres_password}
+        DB_NAME=${MOODLE_DB_NAME:-moodle}
+        
+        issuer_exists=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT id FROM mdl_oauth2_issuer WHERE name = 'Keycloak' AND enabled = 1;" 2>/dev/null || echo "")
+        if [ -n "$issuer_exists" ]; then
+            echo "   - Cấu hình Issuer 'Keycloak' trong Database Moodle: OK"
+            
+            # Kiểm tra endpoint mapping
+            endpoint_count=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM mdl_oauth2_endpoint WHERE issuerid = '$issuer_exists';" 2>/dev/null || echo "0")
+            if [ "$endpoint_count" -ge 5 ]; then
+                echo "   - Cấu hình Endpoints trong Database Moodle: OK ($endpoint_count endpoints)"
+            else
+                echo "   - Cấu hình Endpoints trong Database Moodle: LỖI (Thiếu endpoint, chỉ có $endpoint_count)"
+                status=1
+            fi
+            
+            # Kiểm tra field mapping
+            mapping_count=$(docker exec -i infra-postgres env PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -d "$DB_NAME" -tAc "SELECT COUNT(*) FROM mdl_oauth2_user_field_mapping WHERE issuerid = '$issuer_exists';" 2>/dev/null || echo "0")
+            if [ "$mapping_count" -ge 4 ]; then
+                echo "   - Cấu hình Mapping fields trong Database Moodle: OK ($mapping_count mappings)"
+            else
+                echo "   - Cấu hình Mapping fields trong Database Moodle: LỖI (Thiếu mapping, chỉ có $mapping_count)"
+                status=1
+            fi
+        else
+            echo "   - Cấu hình Issuer 'Keycloak' trong Database Moodle: LỖI (Không tìm thấy hoặc chưa được enabled)"
+            status=1
+        fi
+    else
+        echo "   - Cấu hình OIDC trong .env: LỖI (Thiếu các biến KEYCLOAK_ISSUER hoặc MOODLE_OIDC_CLIENT_ID)"
+        status=1
+    fi
+else
+    echo "   - Kiểm tra Moodle OIDC: Bỏ qua vì container Moodle không chạy"
     status=1
 fi
 

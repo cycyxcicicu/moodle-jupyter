@@ -68,7 +68,7 @@ Tài liệu này bao gồm hai phần:
 ### Bước D: Cấu hình kết nối Cơ sở dữ liệu
 *   Điền thông số kết nối tới container database PostgreSQL như sau:
     *   **Database Type:** Chọn **`PostgreSQL`**.
-    *   **Database host:** Nhập **`qa-postgres`**.
+    *   **Database host:** Nhập **`infra-postgres`**.
     *   **Database name:** Nhập **`testlink_db`**.
     *   **Table prefix:** **Để trống**.
     *   **Database admin login:** Nhập **`admin`**.

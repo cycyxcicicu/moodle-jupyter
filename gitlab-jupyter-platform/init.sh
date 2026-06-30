@@ -114,6 +114,19 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 CREATE EXTENSION IF NOT EXISTS plpgsql;
 SQL
 
+    # Kiểm tra xem database đã được khởi tạo schema chưa (tìm bảng application_settings)
+    echo "Kiểm tra schema của database..."
+    DB_INITIALIZED=$(docker exec -i infra-postgres psql -U "${INFRA_POSTGRES_USER}" -d "${EXTERNAL_DB_NAME}" -tAc "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'application_settings');" 2>/dev/null || echo "f")
+
+    if [ "${DB_INITIALIZED}" = "f" ]; then
+        echo "⚠️ Phát hiện database ngoài chưa được khởi tạo schema."
+        echo "Đang dọn dẹp các tệp sentinel cũ trên host để ép buộc chạy migrations..."
+        rm -f "${GITLAB_DATA_DIR}/bootstrapped"
+        rm -rf "${GITLAB_DATA_DIR}/gitlab-rails/upgrade-status"
+    else
+        echo " Cơ sở dữ liệu đã được khởi tạo schema."
+    fi
+
     # Đợi container infra-redis sẵn sàng
     echo "=== Kiểm tra Redis dùng chung (infra-redis) ==="
     if ! docker ps --filter name=infra-redis --filter status=running -q | grep -q . ; then
@@ -242,16 +255,87 @@ redis['enable'] = true
 EOF
 fi
 
+cat <<EOF >> "${GITLAB_RB_PATH}"
+
+# =========================================================================
+# Keycloak SSO OmniAuth Configuration (OpenID Connect)
+# =========================================================================
+gitlab_rails['omniauth_enabled'] = true
+gitlab_rails['omniauth_allow_single_sign_on'] = ['openid_connect']
+gitlab_rails['omniauth_auto_link_user'] = ['openid_connect']
+gitlab_rails['omniauth_block_auto_created_users'] = false
+gitlab_rails['omniauth_external_providers'] = []
+gitlab_rails['after_sign_out_path'] = '${KEYCLOAK_ISSUER}/protocol/openid-connect/logout?client_id=gitlab-client&post_logout_redirect_uri=http://${GITLAB_HOST}:${GITLAB_HTTP_PORT}/'
+
+gitlab_rails['omniauth_providers'] = [
+  {
+    name: 'openid_connect',
+    label: 'Keycloak',
+    args: {
+      name: 'openid_connect',
+      scope: ['openid', 'profile', 'email'],
+      response_type: 'code',
+      issuer: '${KEYCLOAK_ISSUER}',
+      client_auth_method: 'query',
+      discovery: false,
+      uid_field: 'preferred_username',
+      client_options: {
+        identifier: '${GITLAB_OIDC_CLIENT_ID}',
+        secret: '${GITLAB_OIDC_CLIENT_SECRET}',
+        redirect_uri: 'http://${GITLAB_HOST}:${GITLAB_HTTP_PORT}/users/auth/openid_connect/callback',
+        scheme: 'http',
+        host: 'sso-keycloak',
+        port: 8080,
+        authorization_endpoint: '${KEYCLOAK_ISSUER}/protocol/openid-connect/auth',
+        token_endpoint: 'http://sso-keycloak:8080/realms/school/protocol/openid-connect/token',
+        userinfo_endpoint: 'http://sso-keycloak:8080/realms/school/protocol/openid-connect/userinfo',
+        jwks_uri: 'http://sso-keycloak:8080/realms/school/protocol/openid-connect/certs',
+        end_session_endpoint: '${KEYCLOAK_ISSUER}/protocol/openid-connect/logout'
+      }
+    }
+  }
+]
+EOF
+
 echo "Đã tạo thành công tệp cấu hình gitlab.rb."
 
 # 6. Xây dựng và khởi chạy các container
 echo "Đang khởi động các dịch vụ bằng Docker Compose..."
 docker compose up -d
 
-# 7. Đợi GitLab sẵn sàng và khởi tạo xong database
+# 7. Tự động chạy database migrations nếu database ngoài chưa có schema
+if [ "${USE_EXTERNAL_DB_REDIS}" = "true" ] && [ "${DB_INITIALIZED}" = "f" ]; then
+    echo "========================================================================="
+    echo "Đang chờ container gitlab-ce sẵn sàng để chạy database migrations..."
+    echo "========================================================================="
+
+    # Chờ cho đến khi gitlab-ctl reconfigure hoàn tất bên trong container
+    RECONFIGURE_TIMEOUT=180
+    RECONFIGURE_ELAPSED=0
+    until docker exec gitlab-ce test -f /var/opt/gitlab/bootstrapped 2>/dev/null; do
+        echo -n "."
+        sleep 5
+        RECONFIGURE_ELAPSED=$((RECONFIGURE_ELAPSED + 5))
+        if [ "${RECONFIGURE_ELAPSED}" -ge "${RECONFIGURE_TIMEOUT}" ]; then
+            echo ""
+            echo "⚠️ Cảnh báo: Đã chờ quá ${RECONFIGURE_TIMEOUT}s cho reconfigure. Tiếp tục chạy migrations..."
+            break
+        fi
+    done
+    echo ""
+
+    echo "Đang chạy gitlab:db:configure để khởi tạo schema database..."
+    echo "(Quá trình này có thể mất từ 3 - 5 phút)"
+    docker exec gitlab-ce gitlab-rake gitlab:db:configure || {
+        echo "❌ Lỗi: Không thể chạy database migrations. Kiểm tra log: sudo docker logs gitlab-ce"
+        exit 1
+    }
+    echo "✅ Database migrations hoàn tất thành công!"
+fi
+
+# 8. Đợi GitLab sẵn sàng
 echo "========================================================================="
 echo "Đang chờ máy chủ GitLab phản hồi trên cổng ${GITLAB_HTTP_PORT}..."
-echo "Lưu ý: Quá trình khởi tạo lần đầu tiên có thể mất từ 3 - 5 phút để chạy database migrations."
 echo "========================================================================="
 
 # Vòng lặp kiểm tra cho đến khi trang web của GitLab phản hồi HTTP 200 hoặc 302
@@ -263,7 +347,7 @@ done
 echo ""
 echo "🎉 GitLab Web Server đã phản hồi!"
 
-# 8. Tự động kiểm tra và khởi tạo tài khoản quản trị root nếu chưa có
+# 9. Tự động kiểm tra và khởi tạo tài khoản quản trị root nếu chưa có
 echo "Đang kiểm tra và khởi tạo tài khoản quản trị root trong cơ sở dữ liệu..."
 docker exec -i gitlab-ce gitlab-rails runner "
 u = User.find_by_username('root')

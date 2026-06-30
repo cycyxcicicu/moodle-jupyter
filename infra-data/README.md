@@ -7,6 +7,21 @@ Stack Docker rieng cho cac dich vu data:
 - Redis
 - Qdrant
 - MongoDB
+- ELK Stack (Elasticsearch, Logstash, Kibana)
+
+## Danh sach Cong Mac dinh cua Host
+- **MySQL**: `13306`
+- **MariaDB**: `13307`
+- **PostgreSQL**: `15434`
+- **Redis**: `16379`
+- **Qdrant**: `16333` (HTTP) / `16334` (gRPC)
+- **MongoDB**: `17017`
+- **Elasticsearch**: `19200`
+- **Logstash**: `15044` (Beats) / `50000` (TCP JSON)
+- **Kibana**: `15601`
+- **Prometheus**: `19090`
+- **Grafana**: `13000`
+
 
 ## Huong production-style cho PostgreSQL
 

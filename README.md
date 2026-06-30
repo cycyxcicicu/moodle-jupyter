@@ -60,7 +60,7 @@ sequenceDiagram
 1. **Xác thực và Chuẩn hóa**: LTI Authenticator giải mã mã thông báo JWT từ Moodle, lấy thông tin tài khoản và chuẩn hóa thành định dạng username an toàn (ví dụ: `moodle_5f2`).
 2. **Cô lập Môi trường (Spawn)**: `DockerSpawner` gọi Docker Engine để tạo container cá nhân có tên `jupyter-moodle-5f2`. Nhờ vậy, tài nguyên (CPU/RAM) của học viên này không ảnh hưởng đến học viên khác hay hệ thống Hub chính.
 3. **Bền vững dữ liệu (Persistence)**: Mỗi container được mount với một docker volume riêng (`jupyterhub-user-moodle-5f2`). Dữ liệu bài học của học viên được lưu trữ độc lập tại `/home/jovyan/work` và không bị mất khi container bị tắt hoặc tạo lại.
-4. **Nhúng IFrame động (Dynamic CSP)**: Khi container single-user khởi động, nó tự động nạp cấu hình `jupyter_server_config.py` đọc các biến môi trường cấu hình CSP và origin. Điều này cho phép Moodle (`http://localhost:18080`) nhúng giao diện JupyterLab bên trong iframe một cách an toàn mà không bị trình duyệt chặn.
+4. **Nhúng IFrame động (Dynamic CSP)**: Khi container single-user khởi động, nó tự động nạp cấu hình `jupyter_server_config.py` đọc các biến môi trường cấu hình CSP và origin. Điều này cho phép Moodle (`http://moodle.school.local:18080`) nhúng giao diện JupyterLab bên trong iframe một cách an toàn mà không bị trình duyệt chặn.
 
 ---
 
@@ -131,19 +131,33 @@ moodle-jupyter-platform/
 
 ---
 
+## Cấu hình tên miền ảo (Hosts)
+
+Hệ thống được cấu hình chạy dưới các tên miền ảo để đảm bảo tích hợp Single Sign-On (SSO) hoạt động chính xác giữa các dịch vụ. Hãy thêm các dòng sau vào file `hosts` của bạn:
+
+*   **Trên Windows** (`C:\Windows\System32\drivers\etc\hosts` chạy quyền Administrator) hoặc **Trên WSL Ubuntu** (`/etc/hosts`):
+    ```text
+    127.0.0.1 moodle.school.local
+    127.0.0.1 jupyterhub.school.local
+    127.0.0.1 keycloak.school.local
+    127.0.0.1 gitlab.school.local
+    ```
+
+---
+
 ## Thông tin Truy cập Mặc định
 
 Các port của host đã được đổi để tránh trùng lặp với các dịch vụ mặc định trên máy local của bạn:
 
-- **Moodle Web**: `http://localhost:18080` (Tài khoản Admin: `admin` / Mật khẩu: `admin123`)
-- **JupyterHub (LTI Tool)**: `http://localhost:18000` (Không cần truy cập trực tiếp, xác thực qua Moodle)
-- **PostgreSQL Database**: Host `localhost`, Port `15432` (Lắng nghe tại địa chỉ Loopback `127.0.0.1` để bảo mật)
+- **Moodle Web**: `http://moodle.school.local:18080` (Tài khoản Admin: `admin` / Mật khẩu: `admin123`)
+- **JupyterHub (LTI Tool)**: `http://jupyterhub.school.local:18000` (Không cần truy cập trực tiếp, xác thực qua Moodle)
+- **PostgreSQL Database**: Host `localhost`, Port `15434` (Lắng nghe tại địa chỉ Loopback `127.0.0.1` để bảo mật)
 
 ---
 
 ## Hướng dẫn Kiểm tra Tích hợp LTI 1.3 (Xác thực SSO)
 
-1. Truy cập Moodle `http://localhost:18080` bằng tài khoản admin (`admin` / `admin123`).
+1. Truy cập Moodle `http://moodle.school.local:18080` bằng tài khoản admin (`admin` / `admin123`).
 2. Vào một Khóa học bất kỳ (hoặc tạo khóa học mới).
 3. Bật **Chế độ chỉnh sửa** (Edit mode) ở góc phải màn hình.
 4. Chọn **Thêm hoạt động hoặc tài nguyên** (Add an activity or resource) -> chọn **Công cụ ngoài** (External tool).
@@ -189,7 +203,7 @@ Các port của host đã được đổi để tránh trùng lặp với các d
 
 ### 5. Lỗi IFrame / Cookie
 - **Triệu chứng**: Trước đây gặp lỗi màn hình trắng, `Refused to display... in a frame`, hoặc lỗi mất session Cookie (connection reset) khi nhúng JupyterHub trực tiếp dưới dạng IFrame/Embed trong Moodle.
-- **Khắc phục**: Hiện tại hệ thống đã được cấu hình mặc định là mở ở chế độ nhúng (**Embed** - `launchcontainer = 2`). Chúng tôi đã cấu hình `cookie_options` cho JupyterHub và single-user server với `SameSite=None` và `Secure=False`, đồng thời đặt header CSP `frame-ancestors` chỉ định chính xác nguồn gốc Moodle (`http://localhost:18080`) để đảm bảo nhúng an toàn và không bị chặn bởi các trình duyệt hiện đại.
+- **Khắc phục**: Hiện tại hệ thống đã được cấu hình mặc định là mở ở chế độ nhúng (**Embed** - `launchcontainer = 2`). Chúng tôi đã cấu hình `cookie_options` cho JupyterHub và single-user server với `SameSite=None` and `Secure=False`, đồng thời đặt header CSP `frame-ancestors` chỉ định chính xác nguồn gốc Moodle (`http://moodle.school.local:18080`) để đảm bảo nhúng an toàn và không bị chặn bởi các trình duyệt hiện đại.
 
 ---
 

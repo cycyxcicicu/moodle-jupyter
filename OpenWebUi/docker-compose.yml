@@ -1,0 +1,38 @@
+services:
+  webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: always
+    ports:
+      - "${WEBUI_PORT:-3000}:8080"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL}
+      - DEFAULT_MODEL=${DEFAULT_MODEL}
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - WEBUI_URL=${WEBUI_URL}
+      - ENABLE_OAUTH_SIGNUP=${ENABLE_OAUTH_SIGNUP}
+      - OAUTH_CLIENT_ID=${OAUTH_CLIENT_ID}
+      - OAUTH_CLIENT_SECRET=${OAUTH_CLIENT_SECRET}
+      - OPENID_PROVIDER_URL=${OPENID_PROVIDER_URL}
+      - OAUTH_PROVIDER_NAME=${OAUTH_PROVIDER_NAME}
+      - OAUTH_AUTO_REDIRECT=${OAUTH_AUTO_REDIRECT}
+      - WEBUI_AUTH_SIGNOUT_REDIRECT_URL=${WEBUI_AUTH_SIGNOUT_REDIRECT_URL}
+      - DEFAULT_USER_ROLE=${DEFAULT_USER_ROLE}
+      - OAUTH_MERGE_ACCOUNTS_BY_EMAIL=${OAUTH_MERGE_ACCOUNTS_BY_EMAIL}
+    extra_hosts:
+      - "keycloak.school.local:host-gateway"
+    volumes:
+      - webui-data:/app/backend/data
+    networks:
+      - infra-data-net
+
+volumes:
+  webui-data:
+
+networks:
+  infra-data-net:
+    external: true

@@ -24,7 +24,6 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip3 install --no-cache-dir --upgrade pip==24.0 && \
     pip3 install --no-cache-dir -r /tmp/requirements.txt
 
-RUN mkdir -p /etc/jupyterhub
 COPY jupyterhub_config.py /etc/jupyterhub/jupyterhub_config.py
 
 WORKDIR /etc/jupyterhub

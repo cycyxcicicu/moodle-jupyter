@@ -47,8 +47,14 @@ COPY jupyter_server_config.py /etc/jupyter/jupyter_server_config.py
 COPY nbgrader_config.py /etc/jupyter/nbgrader_config.py
 COPY create_nbgrader_course.py /usr/local/bin/create_nbgrader_course.py
 RUN chmod +x /usr/local/bin/create_nbgrader_course.py
+COPY gitlab-auto-clone.py /usr/local/bin/gitlab-auto-clone.py
+RUN chmod +x /usr/local/bin/gitlab-auto-clone.py
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN mkdir -p /usr/local/share/jupyter/jupyter_app_launcher
+COPY jp_app_launcher_sync.yaml /usr/local/share/jupyter/jupyter_app_launcher/jp_app_launcher_sync.yaml
+
+
 
 USER jovyan
 WORKDIR /home/jovyan

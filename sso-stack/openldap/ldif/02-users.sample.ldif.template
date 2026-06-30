@@ -1,0 +1,31 @@
+dn: uid=sv001,ou=users,${LDAP_BASE_DN}
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: sv001
+cn: Sinh Vien 001
+sn: Sinh Vien
+mail: sv001@school.local
+uidNumber: 20001
+gidNumber: 10001
+homeDirectory: /home/sv001
+loginShell: /bin/bash
+userPassword: ${SV001_PASSWORD}
+
+dn: uid=teacher01,ou=users,${LDAP_BASE_DN}
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: teacher01
+cn: Teacher 01
+sn: Teacher
+mail: teacher01@school.local
+uidNumber: 20002
+gidNumber: 10002
+homeDirectory: /home/teacher01
+loginShell: /bin/bash
+userPassword: ${TEACHER01_PASSWORD}

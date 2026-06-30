@@ -39,3 +39,16 @@ async def startup_event():
             await asyncio.sleep(10)
             
     asyncio.create_task(worker_loop())
+
+    # Khởi chạy tác vụ background worker cho hàng đợi đăng ký học viên (enrollment queue)
+    async def enrollment_worker_loop():
+        await asyncio.sleep(5)
+        while True:
+            try:
+                await internal.run_enrollment_queue_worker()
+            except Exception as e:
+                print(f"Error in background enrollment queue worker: {e}", flush=True)
+            await asyncio.sleep(300)
+
+    asyncio.create_task(enrollment_worker_loop())
+    print("[Startup] Enrollment queue worker đã được khởi chạy.", flush=True)

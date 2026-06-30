@@ -156,6 +156,23 @@ def init_db():
             )
         """))
         
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS enrollment_queue (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(50) NOT NULL,
+                email VARCHAR(100),
+                moodle_course_id VARCHAR(50) NOT NULL,
+                course_title VARCHAR(150),
+                role VARCHAR(20) NOT NULL,
+                status VARCHAR(20) DEFAULT 'pending',
+                attempts INTEGER DEFAULT 0,
+                last_error TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_enrollment_queue_status ON enrollment_queue(status, attempts)"))
+
         # Tạo các chỉ mục (Indexes) để tối ưu hóa truy vấn
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_submissions_username ON submissions(username)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_submissions_course_assign ON submissions(moodle_course_id, assignment_id)"))

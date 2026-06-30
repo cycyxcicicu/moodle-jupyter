@@ -11,7 +11,7 @@ Sau khi chạy thành công lệnh `./init.sh`, bạn truy cập vào đường 
 
 Bạn điền các thông số kết nối cơ sở dữ liệu PostgreSQL như sau:
 *   **Type of Database:** Chọn **`PostgreSQL`** hoặc **`PostgreSQL (PDO)`**.
-*   **Hostname (for Database Server):** Điền **`qa-postgres`** (tên dịch vụ DB trong mạng Docker của qa-tools).
+*   **Hostname (for Database Server):** Điền **`infra-postgres`** (tên dịch vụ DB trong mạng Docker của qa-tools).
 *   **Username (for Database):** Điền **`admin`**.
 *   **Password (for Database):** Điền **`admin123`**.
 *   **Database name (for Database):** Điền **`qa_default_db`**.

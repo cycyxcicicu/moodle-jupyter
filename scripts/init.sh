@@ -74,6 +74,12 @@ if ! ./scripts/configure-lti.sh; then
     exit 1
 fi
 
+# 8.5. Cấu hình Keycloak OAuth2 SSO cho Moodle
+if ! ./scripts/configure-oauth2.sh; then
+    echo "Lỗi: Không thể cấu hình Keycloak OAuth2 cho Moodle."
+    exit 1
+fi
+
 # 9. Khởi động và bắt buộc tạo lại container jupyterhub cùng jupyter-assignment-service để nạp env mới cập nhật
 echo "Đang khởi động và tạo lại JupyterHub & Assignment Service..."
 docker compose up -d --force-recreate jupyterhub jupyter-assignment-service moodle-cron
@@ -93,10 +99,10 @@ docker run --rm -u root \
     python3 /usr/local/bin/create_nbgrader_course.py --nbgrader-course-id course_demo && \
     cp -r /srv/nbgrader/templates/moodle_teacher_demo/python_basic/lab01_function /srv/nbgrader/courses/course_demo/source/ && \
     mkdir -p /srv/nbgrader/exchange && \
-    chmod 777 /srv/nbgrader/exchange && \
+    chmod -R 777 /srv/nbgrader && \
     JOVYAN_UID=\$(id -u jovyan) && \
     JOVYAN_GID=\$(id -g jovyan) && \
-    chown -R \$JOVYAN_UID:\$JOVYAN_GID /srv/nbgrader
+    chown -R \$JOVYAN_UID:\$JOVYAN_GID /srv/nbgrader || true
   "
 
 # 10. Chạy doctor chẩn đoán sức khỏe hệ thống
@@ -105,8 +111,16 @@ echo "Đang chạy chẩn đoán sức khỏe..."
 
 echo ""
 echo "=== THIẾT LẬP HOÀN TẤT ==="
-echo "Moodle Web:             http://localhost:${MOODLE_HOST_PORT:-18080}"
-echo "JupyterHub Web:         http://localhost:${JUPYTERHUB_HOST_PORT:-18000}"
+echo "Moodle Web:             http://moodle.school.local:${MOODLE_HOST_PORT:-18080}"
+echo "JupyterHub Web:         http://jupyterhub.school.local:${JUPYTERHUB_HOST_PORT:-18000}"
 echo "PostgreSQL Host:        localhost:${POSTGRES_HOST_PORT:-15432}"
 echo "Tài khoản Admin Moodle: ${MOODLE_ADMIN_USER:-admin} / ${MOODLE_ADMIN_PASSWORD:-admin123}"
+echo ""
+echo "LƯU Ý: Vui lòng đảm bảo đã thêm các dòng cấu hình sau vào file 'hosts' của máy host"
+echo "(Windows: C:\\Windows\\System32\\drivers\\etc\\hosts hoặc WSL/Linux: /etc/hosts):"
+echo "127.0.0.1 moodle.school.local"
+echo "127.0.0.1 jupyterhub.school.local"
+echo "127.0.0.1 keycloak.school.local"
+echo "127.0.0.1 gitlab.school.local"
+echo "127.0.0.1 openwebui.school.local"
 echo "========================================================="

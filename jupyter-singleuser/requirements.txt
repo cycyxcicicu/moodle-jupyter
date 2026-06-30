@@ -6,3 +6,6 @@ matplotlib==3.8.4
 sqlalchemy==2.0.30
 psycopg2-binary==2.9.9
 nbgrader==0.9.3
+jupyterlab-git==0.50.1
+jupyter-app-launcher==0.3.2
+

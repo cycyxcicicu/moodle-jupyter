@@ -1,0 +1,17 @@
+dn: cn=students,ou=groups,${LDAP_BASE_DN}
+objectClass: top
+objectClass: posixGroup
+cn: students
+gidNumber: 10001
+
+dn: cn=teachers,ou=groups,${LDAP_BASE_DN}
+objectClass: top
+objectClass: posixGroup
+cn: teachers
+gidNumber: 10002
+
+dn: cn=admins,ou=groups,${LDAP_BASE_DN}
+objectClass: top
+objectClass: posixGroup
+cn: admins
+gidNumber: 10003
